@@ -1,11 +1,9 @@
 # voxtype-wave
 
-## Quick start (English)
-
-Push-to-talk dictation for **GNOME Shell on Wayland**, with a floating audio-waveform
-OSD, built on [Voxtype](https://github.com/peteonrails/voxtype). Press F9, speak, press
-F9 again: the text is pasted at the cursor, and a waveform panel appears at the bottom
-of the screen while you talk.
+Push-to-talk dictation for **GNOME Shell on Wayland**, with a floating audio-waveform OSD,
+built on [Voxtype](https://github.com/peteonrails/voxtype). Press F9, speak, press F9 again:
+the text is pasted at the cursor, and a waveform panel appears at the bottom of the screen
+while you talk. Everything runs locally — no internet, no GPU.
 
 Requirements: GNOME Shell 50 on Wayland (tested on Fedora 44 / GNOME 50.5), `pipewire-alsa`,
 `wl-clipboard`, `dotool`, `curl`, and ~700 MB of disk for the model.
@@ -16,64 +14,64 @@ cd voxtype-wave
 ./install.sh
 ```
 
-Log out and back in when the script asks. Spanish docs below.
+The script prints what it does and asks before touching anything. Log out and back in when it
+tells you to. The step-by-step manual guide is in [docs/INSTALL.md](docs/INSTALL.md) (Spanish).
 
 ---
 
-## Qué es y qué problema resuelve
+## What it is and what problem it solves
 
-Es un setup completo de dictado por voz para **GNOME Shell en Wayland**: apretás una tecla,
-hablás, y el texto aparece solo en el cursor. Todo el reconocimiento de voz corre local en
-tu máquina, sin internet y sin GPU.
+A complete voice-dictation setup for **GNOME Shell on Wayland**: you press a key, you speak,
+and the text appears at the cursor by itself. All speech recognition runs locally on your
+machine.
 
-El motor es [Voxtype](https://github.com/peteonrails/voxtype) (MIT, de Peter Jackson), un
-daemon de dictado push-to-talk que ya trae su propio OSD con onda de audio. El problema es
-que **ese OSD no funciona en GNOME**: sus dos frontends (`voxtype-osd-gtk4` y
-`voxtype-osd-quickshell`) necesitan el protocolo `wlr-layer-shell`, que Mutter no
-implementa. Está reportado upstream en el issue
-[#807](https://github.com/peteonrails/voxtype/issues/807), y fue reproducido exactamente en
-Fedora 44 + GNOME 50.5 + voxtype 1.1.0. Instalar `gtk4-layer-shell` no ayuda: lo que falta
-es el protocolo en el compositor, no la librería.
+The engine is [Voxtype](https://github.com/peteonrails/voxtype) (MIT, by Peter Jackson), a
+push-to-talk dictation daemon that already ships its own waveform OSD. The problem is that
+**that OSD does not work on GNOME**: both of its frontends (`voxtype-osd-gtk4` and
+`voxtype-osd-quickshell`) need the `wlr-layer-shell` protocol, which Mutter does not
+implement. It is reported upstream in issue
+[#807](https://github.com/peteonrails/voxtype/issues/807), and it was reproduced exactly on
+Fedora 44 + GNOME 50.5 + voxtype 1.1.0. Installing `gtk4-layer-shell` does not help: what is
+missing is the protocol in the compositor, not the library.
 
-Este repo resuelve eso con una **extensión de GNOME Shell** propia que dibuja el panel en la
-capa *chrome* del shell, con las mismas tramas de audio que emite el daemon. Al dibujar ahí:
+This repo solves it with its own **GNOME Shell extension** that draws the panel in the
+shell's *chrome* layer, using the same audio frames the daemon emits. Drawing there means:
 
-- queda por encima de las ventanas y no aparece en el listado de ventanas;
-- **no roba el foco**, que es lo crítico: el texto se pega en el cursor, así que el foco
-  tiene que seguir donde estabas escribiendo.
+- it stays above the windows and never shows up in the window list;
+- it **does not steal focus**, which is the critical part: the text is pasted at the cursor,
+  so focus has to stay where you were typing.
 
-Si usás **Hyprland, Sway o KDE, este repo no te hace falta**: ahí el OSD de Voxtype funciona
-tal cual (Omarchy ya lo trae integrado con Quickshell).
+If you use **Hyprland, Sway or KDE, you do not need this repo**: Voxtype's own OSD works
+there as-is (Omarchy already ships it integrated with Quickshell).
 
-## Cómo se ve en uso
+## What it looks like in use
 
-1. Apretás **F9**. Suena un pitido, aparece el panel con la onda abajo al centro de la
-   pantalla y el icono de la barra superior se pone rojo.
-2. Hablás. Mientras callás el panel queda **plano** (una línea fina); cuando hablás, la onda
-   crece desde el centro y se apaga al callar.
-3. Apretás **F9** de nuevo. El icono pasa a ámbar mientras transcribe, y el texto se pega en
-   el cursor donde estuvieras escribiendo. El panel se desvanece solo.
+1. You press **F9**. You hear a beep, the waveform panel appears at the bottom center of the
+   screen, and the top-bar icon turns red.
+2. You speak. While you are silent the panel stays **flat** (a thin line); when you speak, the
+   wave grows from the center and fades away as you stop.
+3. You press **F9** again. The icon turns amber while it transcribes, and the text is pasted
+   at the cursor wherever you were typing. The panel fades out on its own.
 
-El **icono de la barra superior** muestra el estado: listo, grabando o transcribiendo. Con
-clic izquierdo se abre un menú con el estado actual y las opciones de **iniciar, detener y
-reiniciar el daemon**, así no hace falta abrir una terminal para administrarlo.
+The **top-bar icon** shows the state: ready, recording or transcribing. Left-clicking it opens
+a menu with the current state and **start, stop and restart the daemon**, so you never need a
+terminal to manage it.
 
-## Requisitos
+## Requirements
 
-- **GNOME Shell 50 en Wayland** (probado en Fedora 44 con GNOME 50.5; el `metadata.json`
-  declara también 51 y 52; la extensión usa APIs internas del shell).
-- Sesión de systemd de usuario (lo estándar en GNOME).
-- `pipewire-alsa` (el daemon captura audio por ALSA sobre PipeWire).
-- `wl-clipboard` (el texto se entrega por portapapeles).
-- `dotool` (manda el acorde de pegado).
-- `curl` (descargas).
-- ~700 MB de disco para el modelo.
+- **GNOME Shell 50 on Wayland** (tested on Fedora 44 with GNOME 50.5; `metadata.json` also
+  declares 51 and 52; the extension uses internal shell APIs).
+- A systemd user session (standard on GNOME).
+- `pipewire-alsa` (the daemon captures audio through ALSA on top of PipeWire).
+- `wl-clipboard` (text is delivered through the clipboard).
+- `dotool` (sends the paste chord).
+- `curl` (downloads).
+- ~700 MB of disk for the model.
 
-En algunos sistemas, además, tu usuario tiene que pertenecer al grupo `input` para que
-`dotool` pueda escribir en `/dev/uinput` y reiniciar sesión. El instalador lo verifica solo.
+On some systems your user also has to belong to the `input` group so `dotool` can write to
+`/dev/uinput`, followed by a re-login. The installer checks this on its own.
 
-## Instalación rápida
-
+## Quick install
 
 ```bash
 git clone https://github.com/Charly9926/voxtype-wave.git
@@ -81,140 +79,145 @@ cd voxtype-wave
 ./install.sh
 ```
 
-Los mensajes del script están en inglés; esta documentación está en español. Opciones:
+The script messages are in English. Options:
 
-| Opción | Qué hace |
+| Option | What it does |
 |---|---|
-| `--no-model` | No descarga el modelo (670 MB); lo bajás después a mano |
-| `--hotkey '<Super><Shift>v'` | Usa otra tecla en vez de F9 |
-| `--no-service` | No instala ni habilita el servicio systemd |
-| `--yes` | Responde que sí a todo (no interactivo) |
-| `--help` | Muestra la ayuda |
+| `--no-model` | Skip the model download (670 MB); fetch it later by hand |
+| `--hotkey '<Super><Shift>v'` | Use a different key instead of F9 |
+| `--no-service` | Do not install or enable the systemd service |
+| `--version X.Y.Z` | Install a specific Voxtype version (default `1.1.0`) |
+| `--latest` | Use the latest version published on GitHub |
+| `--yes` | Answer yes to everything (non-interactive) |
+| `--help` | Show the help |
 
-Al terminar, el script pide **cerrar sesión y volver a entrar**: es para que GNOME cargue la
-extensión nueva y, si hizo falta, para que tome efecto el grupo `input`. Deja la extensión ya
-habilitada para el siguiente login.
+When it finishes, the script asks you to **log out and back in**: that is how GNOME loads the
+new extension and, if it was needed, how the `input` group takes effect. It leaves the
+extension already enabled for the next login.
 
-## Instalación manual (resumen)
+## Manual install (summary)
 
-Si preferís hacerlo a mano, o querés entender qué toca cada pieza. El detalle fino, con la
-verificación de cada paso, está en [docs/INSTALL.md](docs/INSTALL.md).
+If you prefer doing it by hand, or want to understand what each piece touches. The detailed
+version, with a verification for every step, is in [docs/INSTALL.md](docs/INSTALL.md).
 
-1. **Requisitos y `dotool`.** Comprobá GNOME/Wayland, `pipewire-alsa` y `wl-clipboard`, e
-   instalá `dotool` (Fedora: COPR `smallcms/dotool`; Arch: `pacman -S dotool`; Debian/Ubuntu:
-   compilar desde <https://git.sr.ht/~geb/dotool>).
-2. **Acceso a `/dev/uinput`.** Verificá con `[ -w /dev/uinput ]`. Si falta, agregá tu usuario
-   al grupo `input` y reiniciá sesión.
-3. **Binarios de Voxtype.** Bajá del release v1.1.0 el binario del daemon (variante según tu
-   CPU) y el bridge de audio, verificá el `SHA256SUMS.txt` publicado y copialos a
+1. **Requirements and `dotool`.** Check GNOME/Wayland, `pipewire-alsa` and `wl-clipboard`, and
+   install `dotool` (Fedora: COPR `smallcms/dotool`; Arch: `pacman -S dotool`; Debian/Ubuntu:
+   build it from <https://git.sr.ht/~geb/dotool>).
+2. **Access to `/dev/uinput`.** Check with `[ -w /dev/uinput ]`. If it fails, add your user to
+   the `input` group and log back in.
+3. **Voxtype binaries.** Download the daemon binary from the v1.1.0 release (the variant depends
+   on your CPU) plus the audio bridge, verify the published `SHA256SUMS.txt`, and copy both to
    `~/.local/bin/`.
-4. **Modelo.** `voxtype setup --download --model parakeet-tdt-0.6b-v3-int8` (~670 MB).
-5. **Config.** Copiá `config/voxtype-config.toml` a `~/.config/voxtype/config.toml` y validala.
-6. **Servicio.** `voxtype setup systemd` y `systemctl --user enable --now voxtype`.
-7. **Extensión y atajo.** Copiá los 3 archivos de `extension/` a
-   `~/.local/share/gnome-shell/extensions/voxtype-wave@cmj_pc/` y creá el atajo de GNOME que
-   llama a `~/.local/bin/voxtype record toggle`. Después: cerrar sesión, volver a entrar y
-   habilitar la extensión.
+4. **Model.** `voxtype setup --download --model parakeet-tdt-0.6b-v3-int8` (~670 MB).
+5. **Config.** Copy `config/voxtype-config.toml` to `~/.config/voxtype/config.toml` and
+   validate it.
+6. **Service.** `voxtype setup systemd` and `systemctl --user enable --now voxtype`.
+7. **Extension and shortcut.** Copy the 3 files from `extension/` to
+   `~/.local/share/gnome-shell/extensions/voxtype-wave@cmj_pc/` and create the GNOME shortcut
+   that calls `~/.local/bin/voxtype record toggle`. Then: log out, log back in, and enable the
+   extension.
 
-## Uso
+## Usage
 
-- **F9** empieza a grabar. **F9** otra vez termina y pega el texto en el cursor.
-- La **onda** aparece abajo al centro del monitor donde tengas el puntero. En silencio queda
-  plana; con voz, se mueve.
-- El **icono de la barra** muestra listo / grabando / transcribiendo, y su menú permite
-  iniciar, detener y reiniciar el daemon.
+- **F9** starts recording. **F9** again stops it and pastes the text at the cursor.
+- The **waveform** appears at the bottom center of the monitor where your pointer is. It stays
+  flat in silence and moves with your voice.
+- The **top-bar icon** shows ready / recording / transcribing, and its menu lets you start,
+  stop and restart the daemon.
 
-El atajo es un atajo personalizado de GNOME, no un atajo del compositor: funciona en
-cualquier aplicación y en cualquier monitor.
+The trigger is a GNOME custom shortcut, not a compositor keybinding: it works in any
+application and on any monitor.
 
-## Consumo de memoria y rendimiento
+## Memory and performance
 
-Números medidos en la máquina del autor, no estimados:
+Numbers measured on the author's machine, not estimates:
 
-| Momento | Memoria |
+| Moment | Memory |
 |---|---|
-| Daemon en reposo | **~6 MB** |
-| Modelo int8 en disco | **670 MB** |
-| Durante el dictado | el modelo cargado (~1,5 s para cargar, se libera al terminar) |
+| Daemon idle | **~6 MB** |
+| int8 model on disk | **670 MB** |
+| While dictating | the loaded model (~1.5 s to load, released afterwards) |
 
-- Transcripción de una frase: **~0,1 s**.
-- **No usa GPU ni VRAM**: la inferencia corre en CPU con AVX-512.
-- El modelo se carga al apretar F9 y se libera al terminar de transcribir
-  (`on_demand_loading`), así que en reposo el consumo es el del daemon solo.
+- Transcribing one sentence: **~0.1 s**.
+- **No GPU and no VRAM**: inference runs on the CPU with AVX-512.
+- The model is loaded when you press F9 and released once transcription finishes
+  (`on_demand_loading`), so at rest you only pay for the daemon.
 
-Esto es lo que hace que conviva bien con cargas de trabajo locales pesadas (por ejemplo,
-entrenar o correr modelos en la misma máquina): no ocupa VRAM y no retiene el modelo en
-memoria entre dictados.
+This is what makes it coexist well with heavy local workloads (for example, training or
+running models on the same machine): it uses no VRAM and does not keep the model in memory
+between dictations.
 
-## Personalización
+## Customization
 
-**La tecla.** Es un atajo personalizado de GNOME, así que se cambia desde la interfaz
-(Configuración → Teclado → Ver y personalizar atajos → Atajos personalizados) o pasando
-`--hotkey` al instalador. El comando asociado es:
+**The key.** It is a GNOME custom shortcut, so you can change it from the UI
+(Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts) or by passing
+`--hotkey` to the installer. The associated command is:
 
 ```
 ~/.local/bin/voxtype record toggle
 ```
 
-**El panel de la onda.** Las constantes están al principio de `extension.js`:
+**The waveform panel.** The constants live at the top of `extension.js`:
 
-| Constante | Qué controla |
+| Constant | What it controls |
 |---|---|
-| `HISTORY_FRAMES` | Cuántos frames de 10 ms se reflejan desde el centro. `1` = instantáneo puro, `6` = 60 ms (por defecto, algo de textura), `16` = 160 ms (más movimiento) |
-| `EDGE_FALLOFF` | Cuánto baja la amplitud hacia los bordes. `0` = todas las barras iguales, `0.8` = pico concentrado en el centro |
-| `RELEASE` | Velocidad de caída cuando el audio baja. Más cerca de `1` = más lento |
-| `SILENT_LEVEL` | Umbral por debajo del cual se dibuja la línea plana de reposo |
-| `PANEL_W`, `PANEL_H` | Tamaño del panel |
-| `BARS` | Cantidad de barras |
-| `BOTTOM_MARGIN` | Distancia al borde inferior de la pantalla |
+| `HISTORY_FRAMES` | How many 10 ms frames are mirrored from the center. `1` = purely instantaneous, `6` = 60 ms (default, a bit of texture), `16` = 160 ms (more motion) |
+| `EDGE_FALLOFF` | How much amplitude drops toward the edges. `0` = all bars equal, `0.8` = peak concentrated in the center |
+| `RELEASE` | How fast bars fall when the audio drops. Closer to `1` = slower |
+| `SILENT_LEVEL` | Threshold below which the flat idle line is drawn |
+| `PANEL_W`, `PANEL_H` | Panel size |
+| `BARS` | Number of bars |
+| `BOTTOM_MARGIN` | Distance from the bottom edge of the screen |
 
-El color de la onda y del icono sale del color de acento de tu tema de GNOME
+The color of the wave and the icon comes from your GNOME theme's accent color
 (`org.gnome.desktop.interface accent-color`).
 
-## Actualizar
+## Updating
 
-Los binarios de Voxtype son *standalone* en `~/.local/bin`, así que **no se actualizan con
-`dnf`**. Para bajarlos de nuevo desde el último release, con verificación de integridad:
+Voxtype's binaries are *standalone* in `~/.local/bin`, so **`dnf` does not update them**. To
+fetch them again from the latest release, with integrity verification:
 
 ```bash
 ./update-voxtype.sh
 ```
 
-## Desinstalar
+## Uninstalling
 
 ```bash
 ./uninstall.sh
 ```
 
-Quita la extensión, el atajo de GNOME y el servicio. Con `--purge` además borra los
-binarios, la configuración y los modelos:
+Removes the extension, the GNOME shortcut and the service. With `--purge` it also deletes the
+binaries, the configuration and the models:
 
 ```bash
 ./uninstall.sh --purge
 ```
 
-## Limitaciones y notas honestas
+## Limitations and honest notes
 
-- **Solo GNOME Shell en Wayland.** En Hyprland, Sway o KDE no uses este repo: el OSD de
-  Voxtype funciona nativamente ahí.
-- **El grupo `input`.** En sistemas sin ACL de `uaccess` sobre `/dev/uinput`, `dotool`
-  necesita que tu usuario esté en el grupo `input` (junto con la regla udev que trae su
-  paquete) y un reinicio de sesión. Tené en cuenta el costo: ese grupo **permite leer todo el
-  teclado**, no solo la tecla de dictado.
-- **Los binarios no se actualizan con `dnf`** porque no vienen de un repositorio de la
-  distribución. Usá `./update-voxtype.sh`. La contracara es que tampoco se rompen solos con
-  una actualización del sistema.
-- **Ocupa ~700 MB de disco** por el modelo.
-- **La extensión usa APIs internas del shell**, que GNOME no garantiza entre versiones
-  mayores. Está **probada en GNOME 50** (Fedora 44 / GNOME 50.5) y el `metadata.json` declara
-  también 51 y 52 para que un salto de versión no la bloquee de entrada; si alguna API
-  cambia, la extensión queda en estado ERROR (sin romper la sesión) y suele ser cuestión de
-  ajustar una línea (ver [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)).
-- **El uuid de la extensión es `voxtype-wave@cmj_pc`**. Si lo renombrás, tenés que cambiar
-  también la carpeta de instalación y el campo `uuid` de `metadata.json`, porque GNOME exige
-  que coincidan.
+- **GNOME Shell on Wayland only.** On Hyprland, Sway or KDE do not use this repo: Voxtype's
+  OSD works natively there.
+- **The `input` group.** On systems without a `uaccess` ACL on `/dev/uinput`, `dotool` needs
+  your user in the `input` group (together with the udev rule its package ships) and a
+  re-login. Be aware of the cost: that group **lets you read the whole keyboard**, not just
+  the dictation key.
+- **The binaries are not updated by `dnf`** because they do not come from a distribution
+  repository. Use `./update-voxtype.sh`. The flip side is that a system update cannot break
+  them either.
+- **It uses ~700 MB of disk** for the model.
+- **The extension uses internal shell APIs**, which GNOME does not guarantee across major
+  versions. It is **tested on GNOME 50** (Fedora 44 / GNOME 50.5) and `metadata.json` also
+  declares 51 and 52 so that a version bump does not block it outright; if an API changes, the
+  extension ends up in the ERROR state (without breaking the session) and it is usually a
+  one-line fix (see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)).
+- **The extension uuid is `voxtype-wave@cmj_pc`**. If you rename it, you also have to change the
+  install directory and the `uuid` field in `metadata.json`, because GNOME requires them to
+  match.
+- **The detailed guides in `docs/` are currently written in Spanish.** The README and the
+  installer are in English; translations of the guides are welcome.
 
-## Estructura del repo
+## Repository structure
 
 ```
 README.md
@@ -233,23 +236,22 @@ docs/TROUBLESHOOTING.md
 docs/HOW-IT-WORKS.md
 ```
 
-La plantilla `config/voxtype-config.toml` se instala en `~/.config/voxtype/config.toml` y es
-la que define el comportamiento: motor `parakeet` con el modelo int8 y carga bajo demanda, el
-hotkey interno de Voxtype desactivado (el atajo lo maneja GNOME), salida por portapapeles con
-pegado automático vía `dotool`, OSD propio desactivado (lo reemplaza la extensión),
-notificaciones de escritorio apagadas, pitidos activados y detección de voz con el backend
-`energy`.
+The `config/voxtype-config.toml` template is installed to `~/.config/voxtype/config.toml` and
+defines the behaviour: `parakeet` engine with the int8 model and on-demand loading, Voxtype's
+built-in hotkey disabled (GNOME handles the shortcut), clipboard output with automatic pasting
+through `dotool`, its own OSD disabled (the extension replaces it), desktop notifications off,
+beeps on, and voice activity detection with the `energy` backend.
 
-## Créditos y licencias
+## Credits and licenses
 
-- **[Voxtype](https://github.com/peteonrails/voxtype)** — Peter Jackson, licencia MIT. Es el
-  daemon que hace la captura de audio, la transcripción y la inserción de texto.
-- **dotool** — geb, licencia GPL3. <https://git.sr.ht/~geb/dotool>
-- **Modelo NVIDIA Parakeet TDT 0.6B v3** — NVIDIA, licencia CC-BY-4.0. Multilingüe con
-  autodetección de idioma (25 idiomas europeos, incluye español).
-- **Inspiración** — Omarchy, que integra Voxtype con su OSD de Quickshell en Hyprland.
-- **Autor de este repo** — cmj_pc. Licencia: MIT (ver `LICENSE`).
+- **[Voxtype](https://github.com/peteonrails/voxtype)** — Peter Jackson, MIT license. It is the
+  daemon that does audio capture, transcription and text insertion.
+- **dotool** — geb, GPL3 license. <https://git.sr.ht/~geb/dotool>
+- **NVIDIA Parakeet TDT 0.6B v3 model** — NVIDIA, CC-BY-4.0 license. Multilingual with
+  automatic language detection (25 European languages, Spanish included).
+- **Inspiration** — Omarchy, which integrates Voxtype with its Quickshell OSD on Hyprland.
+- **Author of this repo** — Carlos Jiménez. License: MIT (see `LICENSE`).
 
-Este repositorio **no redistribuye** los binarios de Voxtype, el modelo ni `dotool`: el
-instalador los descarga desde sus fuentes originales y quedan sujetos a sus propias
-licencias (MIT, GPL3 y CC-BY-4.0 respectivamente).
+This repository **does not redistribute** Voxtype's binaries, the model or `dotool`: the
+installer downloads them from their original sources and they remain under their own licenses
+(MIT, GPL3 and CC-BY-4.0 respectively).
