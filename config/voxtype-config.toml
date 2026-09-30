@@ -1,0 +1,82 @@
+# Voxtype — dictado push-to-talk (español + inglés) · Fedora 44 / GNOME 50 Wayland
+# Copiar a: ~/.config/voxtype/config.toml
+# Generado el 2026-09-29. Motor: Parakeet v3 en CPU (AVX-512) con carga bajo demanda.
+
+state_file = "auto"
+
+# OJO: 'engine' es clave de nivel superior, tiene que ir antes de cualquier [tabla].
+engine = "parakeet"
+
+[hotkey]
+# CAMINO A: el disparador lo da un atajo personalizado de GNOME (F9 -> `voxtype record toggle`).
+# Con el listener evdev apagado, Voxtype NO abre ningún /dev/input: desaparece por completo
+# el problema del "teclado fantasma" del mouse (no se toca el mouse ni ninguna regla udev).
+enabled = false
+key = "F9"                # sin efecto mientras enabled = false; queda por claridad
+mode = "toggle"           # apretar para empezar a grabar, apretar de nuevo para terminar
+
+[audio]
+device = "default"        # hoy = alsa_input.usb-0c76_USB_PnP_Audio_Device-00.mono-fallback
+sample_rate = 16000
+max_duration_secs = 120
+pause_media = false       # no hay reproductor MPRIS que valga la pena pausar
+
+[audio.feedback]
+# Pitidos al empezar y terminar de grabar. En modo toggle es la señal más clara
+# de que quedó grabando (sin esto tendrías que mirar la notificación).
+enabled = true
+volume = 0.7
+
+[parakeet]
+# Cuantizado int8: 670 MB en disco contra 2,5 GB del fp32, y tu CPU lo acelera
+# por hardware (avx512_vnni + avx512_bf16). Se carga sólo al dictar y se libera al terminar.
+# Para máxima precisión (a costa de 4x más RAM y algo menos de velocidad):
+#   model = "parakeet-tdt-0.6b-v3"
+#   voxtype setup --download --model parakeet-tdt-0.6b-v3
+model = "parakeet-tdt-0.6b-v3-int8"
+model_type = "tdt"        # TDT = con puntuación y mayúsculas
+on_demand_loading = true  # carga el modelo al apretar y lo libera al terminar => ~0 MB en reposo
+
+[output]
+# MODO CLIPBOARD: el texto transcripto queda en el portapapeles y lo pegás vos con Ctrl+V
+# (o Ctrl+Shift+V en terminales). Verificado 2026-09-30: el modo "paste" NO puede mandar el
+# acorde de pegado usando dotool — Voxtype sólo acepta wtype/eitype/ydotool como
+# "keystroke tool" (strings del binario:
+#   "No keystroke tool available (tried wtype, eitype, ydotool)").
+# wtype no funciona en Mutter, y eitype/ydotool no están instalados => no había pegado.
+mode = "clipboard"
+restore_clipboard = false             # dejar el texto en el portapapeles (si no, restaura el anterior)
+driver_order = ["dotool", "ydotool", "clipboard"]
+fallback_to_clipboard = true
+auto_submit = false                   # no manda Enter solo
+
+# PEGADO AUTOMÁTICO sin instalar nada. Verificado en el log del 2026-09-30:
+#   1) el hook SÍ corre en modo clipboard ("Running post_output hook: ...")
+#   2) dotool lee sus comandos por STDIN, no por argumentos:
+#      "dotool: there should be no arguments, commands are read from stdin"
+#   3) el texto llega al portapapeles ("Text copied to clipboard (N chars)")
+# El sleep 0.2 le da tiempo a wl-copy a registrar la selección antes del acorde.
+post_output_command = "sleep 0.2; echo 'key ctrl+shift+v' | dotool"
+# Si preferís Ctrl+V (por ejemplo en VS Code, donde Ctrl+Shift+V hace otra cosa),
+# cambiá el acorde a:  echo 'key ctrl+v' | dotool   — pero en terminales no pega.
+
+[output.notification]
+# Desactivadas: el OSD (extensión voxtype-wave) ya avisa visualmente, así no
+# aparecen notificaciones arriba. Los pitidos siguen en [audio.feedback].
+on_recording_start = false
+on_recording_stop = false
+on_transcription = false
+
+[text]
+spoken_punctuation = false            # probar en true más adelante ("coma", "punto")
+filter_filler_words = true            # quita uh/um/eh... (lista en inglés)
+
+[vad]
+enabled = true                        # descarta grabaciones sin voz (evita alucinaciones)
+backend = "energy"                    # sin descarga extra de modelo
+threshold = 0.4                       # si rechaza tu voz, subir a 0.6 o desactivar VAD
+
+[osd]
+# El binario standalone no incluye el frontend del OSD (voxtype-osd), y en Mutter
+# está reportado como roto (issue #807). Desactivado para no ensuciar el log.
+enabled = false

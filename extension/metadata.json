@@ -1,0 +1,8 @@
+{
+  "uuid": "voxtype-wave@cmj_pc",
+  "name": "Voxtype Waveform",
+  "description": "Onda de audio flotante mientras Voxtype graba, más un icono en la barra superior con el estado (listo / grabando / transcribiendo) y menú para arrancar, detener o reiniciar el daemon. Pensada para GNOME Wayland, donde el OSD propio de Voxtype no puede usar wlr-layer-shell (Mutter no implementa ese protocolo). Flota sobre las ventanas sin robar el foco.",
+  "shell-version": ["50", "51", "52"],
+  "version": 2,
+  "url": "https://github.com/peteonrails/voxtype"
+}

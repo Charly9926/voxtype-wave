@@ -1,0 +1,18 @@
+/* voxtype-wave — colores del icono de la barra superior según el estado.
+   Los iconos simbólicos toman el color de la propiedad CSS `color`. */
+
+.voxtype-wave-idle {
+    color: #9a9996;
+}
+
+.voxtype-wave-recording {
+    color: #e01b24;
+}
+
+.voxtype-wave-transcribing {
+    color: #f5c211;
+}
+
+.voxtype-wave-stopped {
+    color: #77767b;
+}

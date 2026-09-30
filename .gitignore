@@ -1,0 +1,10 @@
+# Archivos temporales y de desarrollo
+*.bak
+*.bak.*
+*.log
+__pycache__/
+*.pyc
+.DS_Store
+
+# Copias locales de la config del usuario (nunca subir credenciales ni rutas)
+config/config.toml
