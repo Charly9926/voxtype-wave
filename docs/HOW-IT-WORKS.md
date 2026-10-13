@@ -220,6 +220,36 @@ daemon se detiene, el archivo queda con el último valor. Para saber si el daemo
 extensión lee el PID file `$XDG_RUNTIME_DIR/voxtype/pid` y comprueba que exista `/proc/<pid>`.
 Solo si el proceso existe interpreta el contenido del archivo de estado.
 
+### Cómo se observa el estado (sin polling)
+
+El archivo de estado se observa con `Gio.FileMonitor`, así que el icono cambia en el instante en
+que Voxtype pasa de `idle` a `recording` o `transcribing`, sin gastar CPU en reposo. Hay dos
+detalles que hacen falta para que eso sea confiable:
+
+- **Reintento al inicio de sesión.** GNOME Shell carga las extensiones antes de que el daemon
+  cree el archivo de estado, y monitorear un archivo que no existe no sirve. Si el archivo no
+  está, la extensión reintenta cada 2 s hasta que aparece (sin marcar la extensión como
+  *errored*, que es lo que pasaría si se dejara fallar la configuración del monitor).
+- **Red de seguridad cada 5 s.** Si el daemon se reinicia y el archivo se recrea con otro inode,
+  el monitor viejo queda apuntando al vacío: al recibir `DELETED`/`MOVED_OUT` se descarta y se
+  arma uno nuevo. Además, un chequeo de bajo coste cada 5 s refresca el estado y detecta que el
+  proceso murió aunque el archivo no haya cambiado.
+
+Los subprocesos (`systemctl --user`, `voxtype config`) se lanzan solo al **abrir el menú** del
+icono o al accionar algo, nunca desde un temporizador periódico.
+
+### El menú del icono
+
+Además del estado y de arrancar/detener/reiniciar el daemon, el menú tiene:
+
+- dos interruptores (**Puntuación hablada** y **Quitar muletillas**) que escriben la clave
+  correspondiente con `voxtype config set` —que preserva comentarios y valida el valor— y luego
+  reinician el servicio, porque **Voxtype no recarga la configuración en caliente** (su propio
+  CLI lo avisa al escribir: `Restart voxtype to apply: systemctl --user restart voxtype`);
+- **Abrir configuración**, que lanza `~/.config/voxtype/config.toml` con el editor por defecto
+  (si el archivo todavía no existe, abre la carpeta).
+
+
 ---
 
 ## Ciclo de vida de la memoria

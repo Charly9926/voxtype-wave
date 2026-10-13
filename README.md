@@ -54,8 +54,14 @@ there as-is (Omarchy already ships it integrated with Quickshell).
    at the cursor wherever you were typing. The panel fades out on its own.
 
 The **top-bar icon** shows the state: ready, recording or transcribing. Left-clicking it opens
-a menu with the current state and **start, stop and restart the daemon**, so you never need a
-terminal to manage it.
+a menu with the current state, **start / stop / restart the daemon**, switches for two Voxtype
+options (**spoken punctuation** and **filler-word removal**), and **Open configuration**, which
+opens `~/.config/voxtype/config.toml` in your default editor. Flipping a switch writes the option
+through `voxtype config set` (comments and validation preserved) and restarts the daemon, because
+Voxtype does not reload its config on the fly. So you never need a terminal to manage it.
+
+The state is watched with a `Gio.FileMonitor` on `$XDG_RUNTIME_DIR/voxtype/state` (no polling),
+with a 2 s retry until the file exists at login and a 5 s low-cost safety check.
 
 ## Requirements
 

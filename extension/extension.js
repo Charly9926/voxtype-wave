@@ -10,15 +10,19 @@
 //
 // Este archivo hace dos cosas:
 //   1) Panel flotante con la onda de audio mientras se graba (abajo al centro).
-//   2) Icono en la barra superior con el estado y menú para arrancar/parar el
-//      daemon, así no hace falta abrir una terminal para administrarlo.
+//   2) Icono en la barra superior con el estado, menú para arrancar/parar el
+//      daemon, interruptores de configuración de Voxtype y acceso al archivo de
+//      configuración.
 //
 // Datos: lanza `voxtype-audio-bridge`, que expone el socket de audio del daemon
 // como NDJSON en stdout (una línea por trama de 10 ms):
 //     {"peak":0.421,"rms":0.180,"vad":1,"ts_ms":1234567}
-//     {"status":"connected"}
 // El bridge ya maneja la reconexión, así que acá solo leemos líneas.
-// El estado (idle/recording/transcribing) sale del archivo de estado del daemon.
+//
+// El estado (idle/recording/transcribing) sale del archivo de estado del daemon,
+// observado con Gio.FileMonitor (sin polling). Si el archivo todavía no existe
+// —el shell carga las extensiones antes de que el daemon lo cree— se reintenta
+// cada 2 s, y un chequeo de seguridad cada 5 s cubre cualquier evento perdido.
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -36,7 +40,7 @@ const BARS = 48;              // cantidad de barras de la onda
 const BAR_GAP = 2;            // separación entre barras
 const BOTTOM_MARGIN = 96;     // distancia al borde inferior de la pantalla
 const TICK_MS = 33;           // ~30 fps de redibujado
-const FADE_START_MS = 400;    // arranca el desvanecido
+const FADE_START_MS = 400;    // arranca el desvanecido al terminar la grabación
 const FADE_END_MS = 850;      // a esta altura ya está invisible (se oculta)
 const BRIDGE_RETRY_SECS = 3;  // si el bridge muere, reintentar
 
@@ -50,8 +54,12 @@ const FLAT_LINE_H = 3;        // alto de la línea plana
 const FLAT_LINE_ALPHA = 0.35; // opacidad de la línea plana
 
 // --- indicador de la barra superior ----------------------------------------
-const STATE_FILE = GLib.build_filenamev([GLib.get_user_runtime_dir(), 'voxtype', 'state']);
-const STATE_POLL_MS = 250;
+const VOXTYPE_RUNTIME = GLib.build_filenamev([GLib.get_user_runtime_dir(), 'voxtype']);
+const STATE_FILE = GLib.build_filenamev([VOXTYPE_RUNTIME, 'state']);
+const PID_FILE = GLib.build_filenamev([VOXTYPE_RUNTIME, 'pid']);
+const CONFIG_FILE = GLib.build_filenamev([GLib.get_user_config_dir(), 'voxtype', 'config.toml']);
+const SAFETY_POLL_SECS = 5;   // red de seguridad por si el monitor pierde un evento
+const MONITOR_RETRY_SECS = 2; // reintento hasta que el archivo de estado exista
 
 const STATE_ICON = {
     idle: 'audio-input-microphone-symbolic',
@@ -87,18 +95,31 @@ const ACCENTS = {
     slate:  [0.435, 0.514, 0.588],
 };
 
-function findBridge() {
-    const candidates = [
-        GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'voxtype-audio-bridge']),
-        GLib.build_filenamev([GLib.get_user_data_dir(), 'voxtype', 'voxtype-audio-bridge']),
-        '/usr/local/bin/voxtype-audio-bridge',
-        '/usr/lib/voxtype/voxtype-audio-bridge',
-    ];
+// Busca un ejecutable por rutas absolutas primero (el PATH del shell puede no
+// incluir ~/.local/bin) y recién después en el PATH.
+function findBinary(name, candidates) {
     for (const path of candidates) {
         if (GLib.file_test(path, GLib.FileTest.IS_EXECUTABLE))
             return path;
     }
-    return GLib.find_program_in_path('voxtype-audio-bridge');
+    return GLib.find_program_in_path(name);
+}
+
+function findBridge() {
+    return findBinary('voxtype-audio-bridge', [
+        GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'voxtype-audio-bridge']),
+        GLib.build_filenamev([GLib.get_user_data_dir(), 'voxtype', 'voxtype-audio-bridge']),
+        '/usr/local/bin/voxtype-audio-bridge',
+        '/usr/lib/voxtype/voxtype-audio-bridge',
+    ]);
+}
+
+function findVoxtype() {
+    return findBinary('voxtype', [
+        GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'voxtype']),
+        '/usr/local/bin/voxtype',
+        '/usr/lib/voxtype/voxtype',
+    ]);
 }
 
 function findVoxtypeUnit() {
@@ -153,11 +174,16 @@ export default class VoxtypeWaveExtension extends Extension {
         this._state = null;
         this._serviceActive = null;
         this._unitPath = findVoxtypeUnit();
+        this._voxtype = findVoxtype();
         this._accent = this._readAccent();
+        this._stateMonitor = null;
+        this._stateMonitorId = 0;
+        this._monitorRetryId = 0;
+        this._safetyId = 0;
+        this._updatingSwitches = false;
 
         this._buildWavePanel();
         this._buildIndicator();
-
         this._startStateWatch();
         this._spawnBridge();
     }
@@ -171,14 +197,19 @@ export default class VoxtypeWaveExtension extends Extension {
             GLib.source_remove(this._retryId);
             this._retryId = 0;
         }
-        if (this._stateTimerId) {
-            GLib.source_remove(this._stateTimerId);
-            this._stateTimerId = 0;
+        if (this._monitorRetryId) {
+            GLib.source_remove(this._monitorRetryId);
+            this._monitorRetryId = 0;
+        }
+        if (this._safetyId) {
+            GLib.source_remove(this._safetyId);
+            this._safetyId = 0;
         }
         if (this._monitorsId) {
             Main.layoutManager.disconnect(this._monitorsId);
             this._monitorsId = 0;
         }
+        this._teardownStateMonitor();
         this._stopBridge();
         if (this._area) {
             this._area.destroy();
@@ -199,17 +230,12 @@ export default class VoxtypeWaveExtension extends Extension {
         this._area = new St.DrawingArea({reactive: false, can_focus: false});
         this._area.set_size(PANEL_W, PANEL_H);
         this._area.connect('repaint', () => this._draw());
-        // Parámetros válidos de addChrome en GNOME 50: SOLO `trackFullscreen` y
-        // `affectsStruts` (defaultParams en js/ui/layout.js). `affectsInputRegion`
-        // existía en versiones viejas y ahora tira "Unrecognized parameter" al
-        // cargar la extensión (verificado con la traza de la shell).
-        // trackFullscreen: false => no se oculta cuando hay una ventana a pantalla
-        // completa (útil si dictás dentro de un juego o video).
-        // El panel no captura clics porque el actor es reactive: false.
-        Main.layoutManager.addChrome(this._area, {
-            affectsStruts: false,
-            trackFullscreen: false,
-        });
+        // addTopChrome SIN parámetros a propósito: en GNOME 50 el set de claves
+        // válidas cambió (por ejemplo `affectsInputRegion` fue eliminado y tiraba
+        // "Unrecognized parameter" al cargar la extensión), así que no pasamos
+        // ninguna y quedan los valores por defecto. El panel no captura clics
+        // porque el actor es reactive: false.
+        Main.layoutManager.addTopChrome(this._area);
         this._area.hide();
 
         this._monitorsId = Main.layoutManager.connect('monitors-changed', () => this._reposition());
@@ -276,6 +302,28 @@ export default class VoxtypeWaveExtension extends Extension {
         this._restartItem.connect('activate', () => this._restartDaemon());
         this._indicator.menu.addMenuItem(this._restartItem);
 
+        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // Interruptores que escriben la config de Voxtype. El daemon no recarga
+        // la config en caliente, así que cada cambio reinicia el servicio.
+        this._punctuationItem = new PopupMenu.PopupSwitchMenuItem('Puntuación hablada', false);
+        this._punctuationItem.connect('toggled', (item, state) => {
+            this._setConfig('text.spoken_punctuation', state);
+        });
+        this._indicator.menu.addMenuItem(this._punctuationItem);
+
+        this._fillersItem = new PopupMenu.PopupSwitchMenuItem('Quitar muletillas', false);
+        this._fillersItem.connect('toggled', (item, state) => {
+            this._setConfig('text.filter_filler_words', state);
+        });
+        this._indicator.menu.addMenuItem(this._fillersItem);
+
+        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        this._openConfigItem = new PopupMenu.PopupMenuItem('Abrir configuración');
+        this._openConfigItem.connect('activate', () => this._openConfig());
+        this._indicator.menu.addMenuItem(this._openConfigItem);
+
         if (!this._unitPath) {
             // Todavía no corrió `voxtype setup systemd`: avisamos en el menú.
             this._toggleItem.label.text = 'Falta el servicio (voxtype setup systemd)';
@@ -285,26 +333,90 @@ export default class VoxtypeWaveExtension extends Extension {
             this._refreshService();
         }
 
+        // Los subprocesos (systemctl, voxtype config) se lanzan al ABRIR el menú,
+        // no en un temporizador: en reposo no gastamos nada.
+        this._indicator.menu.connect('open-state-changed', (_menu, open) => {
+            if (!open)
+                return;
+            if (this._unitPath)
+                this._refreshService();
+            this._refreshSwitches();
+        });
+
         Main.panel.addToStatusArea('voxtype-wave', this._indicator);
     }
 
+    // =======================================================================
+    //  Estado del daemon (FileMonitor + reintento + red de seguridad)
+    // =======================================================================
     _startStateWatch() {
-        this._stateTicks = 0;
         this._refreshState();
-        this._stateTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, STATE_POLL_MS, () => {
+        this._setupStateMonitor();
+        // Red de seguridad de bajo coste: un chequeo cada 5 s corrige cualquier
+        // evento perdido (por ejemplo si el daemon recrea el archivo de estado)
+        // y detecta que el proceso murió aunque el archivo no cambie.
+        this._safetyId = GLib.timeout_add_seconds(GLib.PRIORITY_LOW, SAFETY_POLL_SECS, () => {
             this._refreshState();
-            // Cada ~2 s refrescamos también el estado del servicio (para el menú).
-            this._stateTicks = (this._stateTicks + 1) % 8;
-            if (this._stateTicks === 0 && this._unitPath)
-                this._refreshService();
+            if (!this._stateMonitor)
+                this._setupStateMonitor();
             return GLib.SOURCE_CONTINUE;
         });
+    }
+
+    _scheduleMonitorRetry() {
+        if (this._monitorRetryId)
+            return;
+        this._monitorRetryId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT,
+            MONITOR_RETRY_SECS, () => {
+                this._monitorRetryId = 0;
+                this._setupStateMonitor();
+                return GLib.SOURCE_REMOVE;
+            });
+    }
+
+    _setupStateMonitor() {
+        if (this._stateMonitor || !this._area)
+            return;
+        // En el login el shell carga la extensión antes de que el daemon cree el
+        // archivo de estado, y monitorear algo que no existe no sirve.
+        if (!GLib.file_test(STATE_FILE, GLib.FileTest.EXISTS)) {
+            this._scheduleMonitorRetry();
+            return;
+        }
+        try {
+            this._stateMonitor = Gio.File.new_for_path(STATE_FILE)
+                .monitor_file(Gio.FileMonitorFlags.NONE, null);
+        } catch (e) {
+            logError(e, '[voxtype-wave] no pude monitorear el archivo de estado');
+            this._stateMonitor = null;
+            this._scheduleMonitorRetry();
+            return;
+        }
+        this._stateMonitorId = this._stateMonitor.connect('changed', (_mon, _file, event) => {
+            if (event === Gio.FileMonitorEvent.DELETED || event === Gio.FileMonitorEvent.MOVED_OUT) {
+                // El archivo se recreó (o el daemon se reinició): soltamos este
+                // monitor y el reintento arma uno nuevo sobre el archivo actual.
+                this._teardownStateMonitor();
+                this._scheduleMonitorRetry();
+            }
+            this._refreshState();
+        });
+    }
+
+    _teardownStateMonitor() {
+        if (this._stateMonitor && this._stateMonitorId)
+            this._stateMonitor.disconnect(this._stateMonitorId);
+        this._stateMonitorId = 0;
+        if (this._stateMonitor) {
+            this._stateMonitor.cancel();
+            this._stateMonitor = null;
+        }
     }
 
     // El archivo de estado sobrevive al daemon, así que la fuente de verdad de
     // "está corriendo" es el PID file: si el proceso existe, el daemon vive.
     _daemonRunning() {
-        const raw = readAscii(GLib.build_filenamev([GLib.get_user_runtime_dir(), 'voxtype', 'pid']));
+        const raw = readAscii(PID_FILE);
         if (!raw)
             return false;
         const pid = Number.parseInt(raw, 10);
@@ -335,13 +447,16 @@ export default class VoxtypeWaveExtension extends Extension {
         this._statusItem.label.text = `Voxtype: ${STATE_LABEL[this._state]}`;
     }
 
-    _runSystemctl(args, callback) {
+    // =======================================================================
+    //  Acciones del menú
+    // =======================================================================
+    _runCommand(argv, callback) {
         let proc;
         try {
-            proc = Gio.Subprocess.new(['systemctl', '--user', ...args],
+            proc = Gio.Subprocess.new(argv,
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
         } catch (e) {
-            logError(e, '[voxtype-wave] no pude ejecutar systemctl');
+            logError(e, `[voxtype-wave] no pude ejecutar ${argv.join(' ')}`);
             return;
         }
         proc.communicate_utf8_async(null, null, (p, res) => {
@@ -354,6 +469,10 @@ export default class VoxtypeWaveExtension extends Extension {
             }
             callback?.(out);
         });
+    }
+
+    _runSystemctl(args, callback) {
+        this._runCommand(['systemctl', '--user', ...args], callback);
     }
 
     _refreshService() {
@@ -381,6 +500,54 @@ export default class VoxtypeWaveExtension extends Extension {
                 return GLib.SOURCE_REMOVE;
             });
         });
+    }
+
+    // Lee el valor actual de los interruptores desde la config de Voxtype.
+    _refreshSwitches() {
+        if (!this._voxtype)
+            return;
+        const pairs = [
+            [this._punctuationItem, 'text.spoken_punctuation'],
+            [this._fillersItem, 'text.filter_filler_words'],
+        ];
+        for (const [item, key] of pairs) {
+            this._runCommand([this._voxtype, 'config', 'get', key], out => {
+                if (!item)
+                    return;
+                this._updatingSwitches = true;
+                item.state = out.split('\n')[0].trim() === 'true';
+                this._updatingSwitches = false;
+            });
+        }
+    }
+
+    // Escribe una clave con el CLI de Voxtype (preserva comentarios y valida) y
+    // reinicia el servicio, porque el daemon no recarga la config en caliente.
+    _setConfig(key, value) {
+        if (this._updatingSwitches || !this._voxtype)
+            return;
+        this._runCommand([this._voxtype, 'config', 'set', key, String(value)], () => {
+            if (!this._unitPath)
+                return;
+            this._runSystemctl(['restart', 'voxtype'], () => {
+                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1200, () => {
+                    this._refreshService();
+                    return GLib.SOURCE_REMOVE;
+                });
+            });
+        });
+    }
+
+    _openConfig() {
+        const file = Gio.File.new_for_path(CONFIG_FILE);
+        const target = GLib.file_test(CONFIG_FILE, GLib.FileTest.EXISTS)
+            ? file
+            : Gio.File.new_for_path(GLib.path_get_dirname(CONFIG_FILE));
+        try {
+            Gio.AppInfo.launch_default_for_uri(target.get_uri(), null);
+        } catch (e) {
+            logError(e, '[voxtype-wave] no pude abrir la configuración');
+        }
     }
 
     // =======================================================================
