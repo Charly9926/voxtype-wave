@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Ajustes de GNOME que necesita el instalador de voxtype-wave.
+"""GNOME settings that the voxtype-wave installer needs.
 
-No depende de PyGObject: usa el binario `gsettings`. Toma el estado real del
-usuario y es idempotente: agrega o actualiza *solo* lo suyo, sin pisar los
-atajos ni las extensiones que ya tengas configurados.
+No PyGObject dependency: it uses the `gsettings` binary. It reads the user's real
+state and is idempotent: it adds or updates *only* its own entries, without
+clobbering the shortcuts or extensions you already have configured.
 
-Uso:
-    gnome-settings.py shortcut-set --name NOMBRE --command CMD --binding TECLA
-    gnome-settings.py shortcut-remove --name NOMBRE
-    gnome-settings.py shortcut-show --name NOMBRE
+Usage:
+    gnome-settings.py shortcut-set --name NAME --command CMD --binding KEY
+    gnome-settings.py shortcut-remove --name NAME
+    gnome-settings.py shortcut-show --name NAME
     gnome-settings.py extension-enable --uuid UUID
     gnome-settings.py extension-disable --uuid UUID
     gnome-settings.py extension-status --uuid UUID
@@ -31,7 +31,7 @@ def _run(args):
 
 
 def gget(schema, key):
-    """Devuelve el valor crudo de gsettings (con comillas si es string)."""
+    """Return the raw gsettings value (quoted when it is a string)."""
     res = _run(['gsettings', 'get', schema, key])
     if res.returncode != 0:
         return None
@@ -41,7 +41,7 @@ def gget(schema, key):
 def gset(schema, key, value):
     res = _run(['gsettings', 'set', schema, key, value])
     if res.returncode != 0:
-        sys.exit(f'error: no pude escribir {schema} {key}: {res.stderr.strip()}')
+        sys.exit(f'error: could not write {schema} {key}: {res.stderr.strip()}')
     return value
 
 
@@ -50,7 +50,7 @@ def greset(schema, key):
 
 
 def as_list(raw):
-    """Convierte el GVariant de un array de strings a lista de Python."""
+    """Convert the GVariant of a string array into a Python list."""
     if raw is None:
         return []
     text = raw.strip()
@@ -66,7 +66,7 @@ def as_list(raw):
 
 
 def as_variant(items):
-    """Serializa una lista de strings al GVariant `as` que espera gsettings."""
+    """Serialize a list of strings into the `as` GVariant that gsettings expects."""
     quoted = ", ".join("'%s'" % item.replace("'", "\\'") for item in items)
     return f'[{quoted}]'
 
@@ -82,7 +82,7 @@ def _slot_command(path):
 
 
 def _find_slot(name):
-    """Devuelve la ruta del atajo con ese nombre, o None."""
+    """Return the path of the shortcut with that name, or None."""
     for path in as_list(gget(MEDIA_KEYS, 'custom-keybindings')):
         if _slot_name(path) == name:
             return path
@@ -90,10 +90,10 @@ def _find_slot(name):
 
 
 def _find_slot_by_command(substring):
-    """Devuelve la ruta del atajo cuyo comando contenga ese texto, o None.
+    """Return the path of the shortcut whose command contains that text, or None.
 
-    Sirve para adoptar un atajo ya existente con otro nombre (por ejemplo uno
-    que el usuario creó a mano como "Dictado (toggle)") en vez de duplicarlo.
+    Used to adopt an already existing shortcut stored under a different name (for
+    example one the user created by hand) instead of duplicating it.
     """
     for path in as_list(gget(MEDIA_KEYS, 'custom-keybindings')):
         if substring in _slot_command(path):
@@ -114,8 +114,9 @@ def cmd_shortcut_set(args):
     paths = as_list(gget(MEDIA_KEYS, 'custom-keybindings'))
     slot = _find_slot(args.name)
     adopted = None
-    # Si no existe con nuestro nombre, adoptamos uno que ya apunte al mismo
-    # comando (por ejemplo uno creado a mano con otro nombre) para no duplicar.
+    # If it does not exist under our name, adopt one that already points to the
+    # same command (for example one created by hand under another name) so we do
+    # not end up with a duplicate.
     if slot is None and args.match_command:
         slot = _find_slot_by_command(args.match_command)
         if slot is not None:
@@ -214,15 +215,15 @@ def main():
     p.add_argument('--command', required=True)
     p.add_argument('--binding', required=True)
     p.add_argument('--match-command', default=None,
-                   help='si no existe un atajo con ese nombre, adoptar el que '
-                        'tenga este texto en su comando (evita duplicados)')
+                   help='if no shortcut with that name exists, adopt the one '
+                        'whose command contains this text (avoids duplicates)')
     p.set_defaults(func=cmd_shortcut_set)
 
     p = sub.add_parser('shortcut-remove')
     p.add_argument('--name', required=True)
     p.add_argument('--match-command', default=None,
-                   help='si no existe un atajo con ese nombre, borrar el que '
-                        'tenga este texto en su comando')
+                   help='if no shortcut with that name exists, remove the one '
+                        'whose command contains this text')
     p.set_defaults(func=cmd_shortcut_remove)
 
     p = sub.add_parser('shortcut-show')

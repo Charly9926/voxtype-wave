@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 #
-# voxtype-wave — instalador de dictado push-to-talk con onda en pantalla para GNOME Wayland.
+# voxtype-wave — push-to-talk dictation installer with an on-screen waveform for GNOME Wayland.
 #
-# Qué instala (todo en tu HOME, sin tocar nada del sistema salvo lo que pidas):
-#   1. dotool          (inyector de teclado; en Fedora desde un COPR)
-#   2. voxtype         (daemon, binario standalone verificado por SHA256) -> ~/.local/bin
-#   3. audio-bridge    (puente del socket de audio a NDJSON)              -> ~/.local/bin
-#   4. modelo Parakeet (670 MB, se puede omitir con --no-model)
-#   5. config          -> ~/.config/voxtype/config.toml  (se hace backup si ya existía)
-#   6. servicio        -> ~/.config/systemd/user/voxtype.service
-#   7. extensión GNOME -> ~/.local/share/gnome-shell/extensions/voxtype-wave@cmj_pc
-#   8. atajo de GNOME  (F9 -> voxtype record toggle), sin pisar tus atajos actuales
+# What it installs (everything in your HOME; nothing system-wide unless you ask):
+#   1. dotool          (keyboard injector; on Fedora from a COPR)
+#   2. voxtype         (daemon, standalone binary verified by SHA256)  -> ~/.local/bin
+#   3. audio-bridge    (bridges the audio socket to NDJSON)            -> ~/.local/bin
+#   4. Parakeet model  (670 MB, skip it with --no-model)
+#   5. config          -> ~/.config/voxtype/config.toml  (an existing file is backed up)
+#   6. service         -> ~/.config/systemd/user/voxtype.service
+#   7. GNOME extension -> ~/.local/share/gnome-shell/extensions/voxtype-wave@charly9926.github.io
+#   8. GNOME shortcut  (F9 -> voxtype record toggle), without touching your current shortcuts
 #
-# Uso: ./install.sh [opciones]
-#   --no-model            no descargar el modelo (670 MB)
-#   --no-service          no instalar ni habilitar el servicio de systemd
-#   --hotkey TECLA        tecla/atajo del dictado (por defecto F9; ej: '<Super><Shift>v')
-#   --version X.Y.Z       versión de Voxtype a instalar (por defecto 1.1.0)
-#   --latest              usar la última versión publicada en GitHub
-#   -y, --yes             no preguntar nada
-#   -h, --help            esta ayuda
+# Usage: ./install.sh [options]
+#   --no-model            do not download the model (670 MB)
+#   --no-service          do not install or enable the systemd user service
+#   --hotkey KEY          key/shortcut for dictation (default F9; e.g. '<Super><Shift>v')
+#   --version X.Y.Z       Voxtype version to install (default 1.1.0)
+#   --latest              use the latest version published on GitHub
+#   -y, --yes             do not ask anything
+#   -h, --help            this help
 
 set -euo pipefail
 
@@ -27,7 +27,7 @@ REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib.sh
 source "$REPO_DIR/scripts/lib.sh"
 
-UUID="voxtype-wave@cmj_pc"
+UUID="voxtype-wave@charly9926.github.io"
 SHORTCUT_NAME="Voxtype dictation (toggle)"
 VOXTYPE_VERSION="1.1.0"
 MODEL="parakeet-tdt-0.6b-v3-int8"
@@ -40,159 +40,159 @@ NEEDS_RELOGIN=0
 EXT_DIR="$HOME/.local/share/gnome-shell/extensions/$UUID"
 UNIT_DIR="$HOME/.config/systemd/user"
 
-usage() { sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --no-model)   INSTALL_MODEL=0 ;;
         --no-service) INSTALL_SERVICE=0 ;;
-        --hotkey)     HOTKEY="${2:?--hotkey necesita un valor}"; shift ;;
-        --version)    VOXTYPE_VERSION="${2:?--version necesita un valor}"; shift ;;
+        --hotkey)     HOTKEY="${2:?--hotkey needs a value}"; shift ;;
+        --version)    VOXTYPE_VERSION="${2:?--version needs a value}"; shift ;;
         --latest)     FETCH_LATEST=1 ;;
         -y|--yes)     ASSUME_YES=1 ;;
         -h|--help)    usage; exit 0 ;;
-        *)            die "opción desconocida: $1 (probá --help)" ;;
+        *)            die "unknown option: $1 (try --help)" ;;
     esac
     shift
 done
 
 # --------------------------------------------------------------------------
-# 0. Comprobaciones previas
+# 0. Preflight checks
 # --------------------------------------------------------------------------
 preflight() {
-    say "0/8  Comprobando el entorno"
-    [ "$(id -u)" = 0 ] && die "no lo ejecutes como root: está pensado para tu usuario"
-    command -v curl >/dev/null 2>&1 || die "falta curl"
-    command -v gsettings >/dev/null 2>&1 || die "falta gsettings (GNOME)"
-    command -v systemctl >/dev/null 2>&1 || die "falta systemd (systemctl --user)"
-    command -v python3 >/dev/null 2>&1 || die "falta python3 (lo usa el helper de atajos)"
+    say "0/8  Checking the environment"
+    [ "$(id -u)" = 0 ] && die "do not run this as root: it is meant for your user"
+    command -v curl >/dev/null 2>&1 || die "curl is required"
+    command -v gsettings >/dev/null 2>&1 || die "gsettings is required (GNOME)"
+    command -v systemctl >/dev/null 2>&1 || die "systemd is required (systemctl --user)"
+    command -v python3 >/dev/null 2>&1 || die "python3 is required (used by the shortcut helper)"
 
     if command -v gnome-shell >/dev/null 2>&1; then
         local ver major
         ver="$(gnome-shell --version 2>/dev/null | awk '{print $NF}')"
         major="${ver%%.*}"
         case "$major" in
-            4[5-9]|5[0-2]) ok "GNOME Shell $ver" ;;
-            *) warn "GNOME Shell $ver: la extensión está probada en 45-52 (Fedora 44 / GNOME 50.5)" ;;
+            50) ok "GNOME Shell $ver" ;;
+            *) warn "GNOME Shell $ver: the extension is tested on GNOME 50 (Fedora 44 / GNOME 50.5)" ;;
         esac
     else
-        warn "no encontré gnome-shell; este setup es para GNOME en Wayland"
+        warn "gnome-shell not found; this setup is for GNOME on Wayland"
     fi
 
-    if [ "${XDG_SESSION_TYPE:-desconocido}" != "wayland" ]; then
-        warn "la sesión no es Wayland (XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-desconocido}); probado en Wayland"
+    if [ "${XDG_SESSION_TYPE:-unknown}" != "wayland" ]; then
+        warn "the session is not Wayland (XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-unknown}); tested on Wayland"
     fi
-    ok "entorno listo"
+    ok "environment ready"
 }
 
 # --------------------------------------------------------------------------
-# 1. dotool (inyector) y wl-clipboard
+# 1. dotool (injector) and wl-clipboard
 # --------------------------------------------------------------------------
 install_dotool() {
-    say "1/8  dotool (manda el acorde de pegado) y wl-clipboard"
+    say "1/8  dotool (sends the paste chord) and wl-clipboard"
     if command -v dotool >/dev/null 2>&1; then
-        ok "dotool ya está instalado: $(command -v dotool)"
+        ok "dotool is already installed: $(command -v dotool)"
     else
         # shellcheck disable=SC1091
         . /etc/os-release 2>/dev/null || true
         case "${ID:-}" in
             fedora|rhel)
-                if confirm "¿instalo dotool desde el COPR smallcms/dotool (usa sudo)?"; then
+                if confirm "install dotool from the smallcms/dotool COPR (uses sudo)?"; then
                     sudo dnf -y copr enable smallcms/dotool
                     sudo dnf -y install dotool wl-clipboard
                 else
-                    warn "sin dotool el texto no se pega solo: quedará en el portapapeles"
+                    warn "without dotool the text will not paste itself: it will stay in the clipboard"
                 fi
                 ;;
             arch|manjaro|endeavouros)
-                if confirm "¿instalo dotool y wl-clipboard con pacman (usa sudo)?"; then
+                if confirm "install dotool and wl-clipboard with pacman (uses sudo)?"; then
                     sudo pacman -S --needed --noconfirm dotool wl-clipboard
                 fi
                 ;;
             *)
-                warn "distro '${ID:-desconocida}': instalá dotool a mano (https://git.sr.ht/~geb/dotool)"
-                info "Debian/Ubuntu: sudo apt install libxkbcommon-dev y compilar dotool desde el fuente"
-                info "sin dotool el texto no se pega solo: quedará en el portapapeles"
+                warn "distro '${ID:-unknown}': install dotool by hand (https://git.sr.ht/~geb/dotool)"
+                info "Debian/Ubuntu: sudo apt install libxkbcommon-dev, then build dotool from source"
+                info "without dotool the text will not paste itself: it will stay in the clipboard"
                 ;;
         esac
     fi
 
     if command -v dotool >/dev/null 2>&1; then
         if [ -w /dev/uinput ]; then
-            ok "tu usuario ya puede escribir en /dev/uinput"
+            ok "your user can already write to /dev/uinput"
         else
-            warn "tu usuario NO puede escribir en /dev/uinput (dotool lo necesita)"
-            info "se arregla agregándote al grupo 'input' (la regla udev la trae el paquete dotool)"
-            if confirm "¿ejecuto ahora: sudo usermod -aG input $USER ?"; then
+            warn "your user CANNOT write to /dev/uinput (dotool needs it)"
+            info "fix it by adding yourself to the 'input' group (the udev rule ships with the dotool package)"
+            if confirm "run now: sudo usermod -aG input $USER ?"; then
                 sudo usermod -aG input "$USER"
                 NEEDS_RELOGIN=1
-                ok "listo: toma efecto al reiniciar sesión"
+                ok "done: it takes effect after logging out and back in"
             else
-                info "corré a mano: sudo usermod -aG input $USER   y reiniciá sesión"
+                info "run it by hand: sudo usermod -aG input $USER   and then log out and back in"
             fi
         fi
     fi
 }
 
 # --------------------------------------------------------------------------
-# 2-3. Voxtype + audio-bridge (descarga verificada)
+# 2-3. Voxtype + audio-bridge (verified download)
 # --------------------------------------------------------------------------
 install_voxtype() {
     [ "$FETCH_LATEST" = 1 ] && VOXTYPE_VERSION="$(latest_voxtype_version)"
-    say "2/8  Descargando Voxtype $VOXTYPE_VERSION y verificando integridad"
+    say "2/8  Downloading Voxtype $VOXTYPE_VERSION and verifying integrity"
     local tmp
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' EXIT
     fetch_binaries "$VOXTYPE_VERSION" "$tmp"
 
-    say "3/8  Instalando los binarios en $BIN_DIR"
+    say "3/8  Installing the binaries into $BIN_DIR"
     install_binaries "$tmp"
-    "$BIN_DIR/voxtype" --version || die "el binario instalado no se ejecuta"
-    [ -x "$BIN_DIR/voxtype-audio-bridge" ] || die "falta el audio-bridge"
-    ok "audio-bridge presente"
+    "$BIN_DIR/voxtype" --version || die "the installed binary does not run"
+    [ -x "$BIN_DIR/voxtype-audio-bridge" ] || die "the audio-bridge is missing"
+    ok "audio-bridge present"
 }
 
 # --------------------------------------------------------------------------
-# 4. Configuración
+# 4. Configuration
 # --------------------------------------------------------------------------
 install_config() {
-    say "4/8  Configuración en $CONF_DIR/config.toml"
+    say "4/8  Configuration in $CONF_DIR/config.toml"
     mkdir -p "$CONF_DIR"
     if [ -f "$CONF_DIR/config.toml" ]; then
         local backup="$CONF_DIR/config.toml.bak.$(date +%Y%m%d-%H%M%S)"
         cp -a "$CONF_DIR/config.toml" "$backup"
-        warn "ya tenías una config: copia de respaldo en $backup"
+        warn "you already had a config: backup saved to $backup"
     fi
     install -Dm644 "$REPO_DIR/config/voxtype-config.toml" "$CONF_DIR/config.toml"
     if "$BIN_DIR/voxtype" -c "$CONF_DIR/config.toml" config >/dev/null 2>&1; then
-        ok "la config parsea correctamente"
+        ok "the config parses correctly"
     else
-        die "la config no parsea; revisá $CONF_DIR/config.toml"
+        die "the config does not parse; check $CONF_DIR/config.toml"
     fi
 }
 
 # --------------------------------------------------------------------------
-# 5. Modelo
+# 5. Model
 # --------------------------------------------------------------------------
 install_model() {
-    say "5/8  Modelo de voz (${MODEL})"
+    say "5/8  Speech model (${MODEL})"
     if [ "$INSTALL_MODEL" = 0 ]; then
-        warn "omitido (--no-model). Después corré:"
+        warn "skipped (--no-model). Run this later:"
         info "$BIN_DIR/voxtype setup --download --model $MODEL"
         return
     fi
-    info "descarga de ~670 MB desde models.voxtype.io (puede tardar)"
+    info "downloading ~670 MB from models.voxtype.io (this can take a while)"
     "$BIN_DIR/voxtype" setup --download --model "$MODEL"
-    ok "modelo listo en ~/.local/share/voxtype/models/$MODEL"
+    ok "model ready in ~/.local/share/voxtype/models/$MODEL"
 }
 
 # --------------------------------------------------------------------------
-# 6. Servicio de usuario
+# 6. User service
 # --------------------------------------------------------------------------
 install_service() {
-    say "6/8  Servicio de usuario de systemd"
+    say "6/8  systemd user service"
     if [ "$INSTALL_SERVICE" = 0 ]; then
-        warn "omitido (--no-service)"
+        warn "skipped (--no-service)"
         return
     fi
     mkdir -p "$UNIT_DIR"
@@ -213,20 +213,20 @@ Environment=XDG_RUNTIME_DIR=%t
 [Install]
 WantedBy=graphical-session.target
 EOF
-    ok "unidad escrita en $UNIT_DIR/voxtype.service"
+    ok "unit written to $UNIT_DIR/voxtype.service"
 
     systemctl --user daemon-reload
-    systemctl --user enable --now voxtype.service || die "no pude habilitar el servicio"
+    systemctl --user enable --now voxtype.service || die "could not enable the service"
     sleep 1
     if systemctl --user is-active --quiet voxtype.service; then
-        ok "daemon corriendo"
+        ok "daemon running"
     else
-        warn "el servicio no quedó activo; mirá: journalctl --user -u voxtype -n 40"
+        warn "the service did not stay active; check: journalctl --user -u voxtype -n 40"
     fi
 
     if ! wayland_env_ok; then
-        warn "el servicio no ve WAYLAND_DISPLAY y el modo clipboard lo necesita (wl-copy)"
-        info "creá el drop-in:"
+        warn "the service cannot see WAYLAND_DISPLAY and clipboard mode needs it (wl-copy)"
+        info "create the drop-in:"
         info "  mkdir -p ~/.config/systemd/user/voxtype.service.d"
         info "  printf '[Service]\\nEnvironment=WAYLAND_DISPLAY=wayland-0\\n' > ~/.config/systemd/user/voxtype.service.d/wayland.conf"
         info "  systemctl --user daemon-reload && systemctl --user restart voxtype"
@@ -234,63 +234,63 @@ EOF
 }
 
 # --------------------------------------------------------------------------
-# 7. Extensión de GNOME
+# 7. GNOME extension
 # --------------------------------------------------------------------------
 install_extension() {
-    say "7/8  Extensión de GNOME ($UUID)"
+    say "7/8  GNOME extension ($UUID)"
     install -d "$EXT_DIR"
     local f
     for f in extension.js metadata.json stylesheet.css; do
         install -Dm644 "$REPO_DIR/extension/$f" "$EXT_DIR/$f"
     done
-    ok "archivos copiados en $EXT_DIR"
+    ok "files copied to $EXT_DIR"
     python3 "$REPO_DIR/scripts/gnome-settings.py" extension-enable --uuid "$UUID"
     NEEDS_RELOGIN=1
 }
 
 # --------------------------------------------------------------------------
-# 8. Atajo de GNOME
+# 8. GNOME shortcut
 # --------------------------------------------------------------------------
 install_shortcut() {
-    say "8/8  Atajo de GNOME para dictar ($HOTKEY)"
+    say "8/8  GNOME shortcut for dictation ($HOTKEY)"
     python3 "$REPO_DIR/scripts/gnome-settings.py" shortcut-set \
         --name "$SHORTCUT_NAME" \
         --command "$BIN_DIR/voxtype record toggle" \
         --binding "$HOTKEY" \
         --match-command "voxtype record toggle"
-    ok "atajo configurado (no se tocaron tus otros atajos)"
+    ok "shortcut configured (your other shortcuts were left alone)"
 }
 
 summary() {
-    say "Listo"
+    say "Done"
     cat <<EOF
 
-    Qué quedó instalado
-      daemon        $BIN_DIR/voxtype  (servicio de usuario voxtype.service)
+    What was installed
+      daemon        $BIN_DIR/voxtype  (voxtype.service user service)
       bridge        $BIN_DIR/voxtype-audio-bridge
       config        $CONF_DIR/config.toml
-      extensión     $EXT_DIR
-      atajo         $HOTKEY  ->  $BIN_DIR/voxtype record toggle
+      extension     $EXT_DIR
+      shortcut      $HOTKEY  ->  $BIN_DIR/voxtype record toggle
 
-    Qué hacer ahora
+    What to do now
 EOF
     if [ "$NEEDS_RELOGIN" = 1 ]; then
-        printf '      1. CERRÁ SESIÓN y volvé a entrar (carga la extensión'
-        [ -w /dev/uinput ] || printf ' y aplica el grupo input'
+        printf '      1. LOG OUT and back in (loads the extension'
+        [ -w /dev/uinput ] || printf ' and applies the input group'
         printf ')\n'
-        printf '      2. Apretá %s, hablá, y volvé a apretar %s\n' "$HOTKEY" "$HOTKEY"
+        printf '      2. Press %s, speak, and press %s again\n' "$HOTKEY" "$HOTKEY"
     else
-        printf '      1. Apretá %s, hablá, y volvé a apretar %s\n' "$HOTKEY" "$HOTKEY"
+        printf '      1. Press %s, speak, and press %s again\n' "$HOTKEY" "$HOTKEY"
     fi
     cat <<EOF
 
-    Comandos útiles
+    Useful commands
       gnome-extensions info $UUID
       systemctl --user status voxtype
       journalctl --user -b -g voxtype-wave --no-pager | tail -30
-      ./uninstall.sh              desinstalar (deja config y modelos)
-      ./uninstall.sh --purge      desinstalar todo, incluido el modelo
-      ./update-voxtype.sh         actualizar los binarios de Voxtype
+      ./uninstall.sh              uninstall (keeps config and models)
+      ./uninstall.sh --purge      uninstall everything, including the model
+      ./update-voxtype.sh         update the Voxtype binaries
 EOF
 }
 

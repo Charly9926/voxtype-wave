@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 #
-# voxtype-wave — actualiza los binarios de Voxtype.
+# voxtype-wave — updates the Voxtype binaries.
 #
-# Los binarios están instalados como standalone en ~/.local/bin, así que
-# `dnf upgrade` no los toca. Este script consulta el último release de GitHub,
-# verifica el SHA256 (y la firma GPG si tenés la clave importada), reemplaza
-# los dos binarios y reinicia el servicio.
+# The binaries are installed as standalone files in ~/.local/bin, so
+# `dnf upgrade` never touches them. This script checks the latest GitHub
+# release, verifies the SHA256 (and the GPG signature if you have the key
+# imported), replaces both binaries and restarts the service.
 #
-# Uso: ./update-voxtype.sh [--force] [-y]
-#      VOXTYPE_VERSION=X.Y.Z ./update-voxtype.sh     # versión concreta
-#   --force   reinstalar aunque sea la misma versión
-#   -y        no preguntar
+# Usage: ./update-voxtype.sh [--force] [-y]
+#        VOXTYPE_VERSION=X.Y.Z ./update-voxtype.sh     # specific version
+#   --force   reinstall even if it is the same version
+#   -y        do not ask
 
 set -euo pipefail
 
@@ -23,26 +23,26 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --force) FORCE=1 ;;
         -y|--yes) ASSUME_YES=1 ;;
-        -h|--help) sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) die "opción desconocida: $1" ;;
+        -h|--help) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown option: $1" ;;
     esac
     shift
 done
 
-[ -x "$BIN_DIR/voxtype" ] || die "no está instalado Voxtype en $BIN_DIR (corré ./install.sh)"
+[ -x "$BIN_DIR/voxtype" ] || die "Voxtype is not installed in $BIN_DIR (run ./install.sh)"
 
 current="$("$BIN_DIR/voxtype" --version 2>/dev/null | awk '{print $NF}')"
 target="${VOXTYPE_VERSION:-}"
 
-say "Versión instalada: ${current:-desconocida}"
+say "Installed version: ${current:-unknown}"
 if [ -z "$target" ]; then
-    info "consultando el último release en GitHub"
+    info "querying the latest release on GitHub"
     target="$(latest_voxtype_version)"
 fi
-say "Versión objetivo:  $target"
+say "Target version:    $target"
 
 if [ "$target" = "$current" ] && [ "$FORCE" = 0 ]; then
-    ok "ya estás en esa versión; nada que hacer (usá --force para reinstalar)"
+    ok "already on that version; nothing to do (use --force to reinstall)"
     exit 0
 fi
 
@@ -53,13 +53,13 @@ fetch_binaries "$target" "$tmp"
 install_binaries "$tmp"
 
 if systemctl --user is-enabled --quiet voxtype.service 2>/dev/null; then
-    if confirm "¿reinicio el servicio ahora?"; then
+    if confirm "restart the service now?"; then
         systemctl --user restart voxtype.service
-        ok "servicio reiniciado"
+        ok "service restarted"
     fi
 else
-    info "el servicio de usuario no está habilitado; arrancalo a mano cuando quieras"
+    info "the user service is not enabled; start it by hand whenever you want"
 fi
 
-say "Actualizado a $target"
-info "verificá con: systemctl --user status voxtype --no-pager"
+say "Updated to $target"
+info "check with: systemctl --user status voxtype --no-pager"

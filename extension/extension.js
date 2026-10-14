@@ -1,28 +1,26 @@
-// voxtype-wave — OSD de onda de audio + indicador de estado para Voxtype (GNOME Shell).
+// voxtype-wave — audio waveform OSD and status indicator for the Voxtype daemon.
 //
-// Por qué una extensión y no el OSD de Voxtype: sus dos frontends
-// (voxtype-osd-gtk4 y voxtype-osd-quickshell) necesitan el protocolo
-// wlr-layer-shell, que Mutter NO implementa (issue upstream #807, reportado
-// justamente en Fedora 44 / GNOME 50.5 / voxtype 1.1.0). Una extensión dibuja
-// en la capa "chrome" del shell: queda por encima de las ventanas, no aparece
-// en el listado de ventanas y no roba el foco (clave: el pegado automático del
-// texto depende de que el foco siga donde estabas dictando).
+// Why a shell extension instead of Voxtype's own OSD: both of its frontends
+// (voxtype-osd-gtk4, voxtype-osd-quickshell) require the wlr-layer-shell
+// protocol, which Mutter does not implement (see voxtype issue #807). A shell
+// extension can draw in the shell's chrome layer instead, which stays above the
+// windows, does not appear in the window list and does not steal focus — the
+// last one matters because the transcribed text is pasted at the cursor.
 //
-// Este archivo hace dos cosas:
-//   1) Panel flotante con la onda de audio mientras se graba (abajo al centro).
-//   2) Icono en la barra superior con el estado, menú para arrancar/parar el
-//      daemon, interruptores de configuración de Voxtype y acceso al archivo de
-//      configuración.
+// The extension does two things:
+//   1. a floating waveform panel at the bottom center while recording;
+//   2. a top-bar icon with the daemon state, a menu to start/stop/restart the
+//      daemon, two Voxtype option switches and a shortcut to the config file.
 //
-// Datos: lanza `voxtype-audio-bridge`, que expone el socket de audio del daemon
-// como NDJSON en stdout (una línea por trama de 10 ms):
+// Data: it spawns `voxtype-audio-bridge`, which exposes the daemon's audio
+// socket as NDJSON on stdout, one line per 10 ms frame:
 //     {"peak":0.421,"rms":0.180,"vad":1,"ts_ms":1234567}
-// El bridge ya maneja la reconexión, así que acá solo leemos líneas.
+// The bridge handles reconnection itself, so we only read lines here.
 //
-// El estado (idle/recording/transcribing) sale del archivo de estado del daemon,
-// observado con Gio.FileMonitor (sin polling). Si el archivo todavía no existe
-// —el shell carga las extensiones antes de que el daemon lo cree— se reintenta
-// cada 2 s, y un chequeo de seguridad cada 5 s cubre cualquier evento perdido.
+// The daemon state (idle/recording/transcribing) comes from its state file,
+// watched with Gio.FileMonitor (no polling). The shell loads extensions before
+// the daemon creates that file, so the monitor setup retries every 2 s, and a
+// 5 s low-cost safety check covers any missed event.
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -33,33 +31,34 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
-// --- panel de la onda -------------------------------------------------------
-const PANEL_W = 340;          // ancho en píxeles lógicos
-const PANEL_H = 64;           // alto
-const BARS = 48;              // cantidad de barras de la onda
-const BAR_GAP = 2;            // separación entre barras
-const BOTTOM_MARGIN = 96;     // distancia al borde inferior de la pantalla
-const TICK_MS = 33;           // ~30 fps de redibujado
-const FADE_START_MS = 400;    // arranca el desvanecido al terminar la grabación
-const FADE_END_MS = 850;      // a esta altura ya está invisible (se oculta)
-const BRIDGE_RETRY_SECS = 3;  // si el bridge muere, reintentar
+// --- waveform panel ---------------------------------------------------------
+const PANEL_W = 340;          // logical pixels
+const PANEL_H = 64;
+const BARS = 48;              // number of bars in the waveform
+const BAR_GAP = 2;            // gap between bars
+const BOTTOM_MARGIN = 96;     // distance from the bottom edge of the monitor
+const TICK_MS = 33;           // ~30 fps redraw
+const FADE_START_MS = 400;    // start fading when recording ends
+const FADE_END_MS = 850;      // fully invisible at this point (panel hidden)
+const BRIDGE_RETRY_SECS = 3;  // respawn the bridge if it exits
 
-// --- visualización: onda "actual", simétrica y sin scroll lateral -----------
-const HISTORY_FRAMES = 6;     // frames de 10 ms reflejados desde el centro. 1 = instantáneo puro,
-                              // 6 = 60 ms (un poco de textura), 16 = 160 ms (más movimiento)
-const EDGE_FALLOFF = 0.55;    // cuánto baja la amplitud hacia los bordes (0 = todo igual)
-const RELEASE = 0.72;         // caída por tick cuando el audio baja (1 = no baja nunca)
-const SILENT_LEVEL = 0.02;    // por debajo de esto se dibuja la línea plana (reposo)
-const FLAT_LINE_H = 3;        // alto de la línea plana
-const FLAT_LINE_ALPHA = 0.35; // opacidad de la línea plana
+// --- waveform shape ---------------------------------------------------------
+// Frames are mirrored from the center, so the newest audio is in the middle and
+// there is no lateral scroll. HISTORY_FRAMES = 1 makes it purely instantaneous.
+const HISTORY_FRAMES = 6;     // 10 ms frames kept, mirrored from the center
+const EDGE_FALLOFF = 0.55;    // amplitude drop towards the edges (0 = flat bars)
+const RELEASE = 0.72;         // per-tick decay when the audio drops
+const SILENT_LEVEL = 0.02;    // below this, the flat idle line is drawn
+const FLAT_LINE_H = 3;
+const FLAT_LINE_ALPHA = 0.35;
 
-// --- indicador de la barra superior ----------------------------------------
+// --- daemon state / panel indicator ----------------------------------------
 const VOXTYPE_RUNTIME = GLib.build_filenamev([GLib.get_user_runtime_dir(), 'voxtype']);
 const STATE_FILE = GLib.build_filenamev([VOXTYPE_RUNTIME, 'state']);
 const PID_FILE = GLib.build_filenamev([VOXTYPE_RUNTIME, 'pid']);
 const CONFIG_FILE = GLib.build_filenamev([GLib.get_user_config_dir(), 'voxtype', 'config.toml']);
-const SAFETY_POLL_SECS = 5;   // red de seguridad por si el monitor pierde un evento
-const MONITOR_RETRY_SECS = 2; // reintento hasta que el archivo de estado exista
+const SAFETY_POLL_SECS = 5;   // safety net in case the monitor misses an event
+const MONITOR_RETRY_SECS = 2; // retry until the state file exists
 
 const STATE_ICON = {
     idle: 'audio-input-microphone-symbolic',
@@ -76,13 +75,13 @@ const STATE_CLASS = {
 };
 
 const STATE_LABEL = {
-    idle: 'listo — F9 para dictar',
-    recording: 'grabando…',
-    transcribing: 'transcribiendo…',
-    stopped: 'daemon detenido',
+    idle: 'ready — press F9 to dictate',
+    recording: 'recording…',
+    transcribing: 'transcribing…',
+    stopped: 'daemon stopped',
 };
 
-// Colores de acento de GNOME (org.gnome.desktop.interface accent-color).
+// GNOME accent colors (org.gnome.desktop.interface accent-color).
 const ACCENTS = {
     blue:   [0.208, 0.518, 0.894],
     teal:   [0.129, 0.565, 0.643],
@@ -95,8 +94,8 @@ const ACCENTS = {
     slate:  [0.435, 0.514, 0.588],
 };
 
-// Busca un ejecutable por rutas absolutas primero (el PATH del shell puede no
-// incluir ~/.local/bin) y recién después en el PATH.
+// Look for executables by absolute path first: the shell's PATH may not include
+// ~/.local/bin, where standalone installs of voxtype live.
 function findBinary(name, candidates) {
     for (const path of candidates) {
         if (GLib.file_test(path, GLib.FileTest.IS_EXECUTABLE))
@@ -135,7 +134,7 @@ function findVoxtypeUnit() {
     return null;
 }
 
-// Lectura de un archivo ASCII chico sin depender de TextDecoder.
+// Small ASCII file reader (avoids TextDecoder for a few bytes).
 function readAscii(path, max = 64) {
     try {
         const [ok, contents] = Gio.File.new_for_path(path).load_contents(null);
@@ -162,25 +161,26 @@ function roundedRect(cr, x, y, w, h, r) {
 
 export default class VoxtypeWaveExtension extends Extension {
     enable() {
-        // --- estado interno ---
         this._bars = new Array(BARS).fill(0);
         this._hist = [];
         this._silent = true;
         this._lastFrameUs = 0;
+        this._visible = false;
         this._bridge = null;
         this._stdout = null;
-        this._retryId = 0;
-        this._visible = false;
+        this._bridgeRetryId = 0;
+        this._monitorsChangedId = 0;
+        this._paintId = 0;
         this._state = null;
         this._serviceActive = null;
-        this._unitPath = findVoxtypeUnit();
-        this._voxtype = findVoxtype();
-        this._accent = this._readAccent();
         this._stateMonitor = null;
         this._stateMonitorId = 0;
         this._monitorRetryId = 0;
         this._safetyId = 0;
         this._updatingSwitches = false;
+        this._accent = this._readAccent();
+        this._unitPath = findVoxtypeUnit();
+        this._voxtype = findVoxtype();
 
         this._buildWavePanel();
         this._buildIndicator();
@@ -189,13 +189,13 @@ export default class VoxtypeWaveExtension extends Extension {
     }
 
     disable() {
-        if (this._tickId) {
-            GLib.source_remove(this._tickId);
-            this._tickId = 0;
+        if (this._paintId) {
+            GLib.source_remove(this._paintId);
+            this._paintId = 0;
         }
-        if (this._retryId) {
-            GLib.source_remove(this._retryId);
-            this._retryId = 0;
+        if (this._bridgeRetryId) {
+            GLib.source_remove(this._bridgeRetryId);
+            this._bridgeRetryId = 0;
         }
         if (this._monitorRetryId) {
             GLib.source_remove(this._monitorRetryId);
@@ -205,42 +205,39 @@ export default class VoxtypeWaveExtension extends Extension {
             GLib.source_remove(this._safetyId);
             this._safetyId = 0;
         }
-        if (this._monitorsId) {
-            Main.layoutManager.disconnect(this._monitorsId);
-            this._monitorsId = 0;
+        if (this._monitorsChangedId) {
+            Main.layoutManager.disconnect(this._monitorsChangedId);
+            this._monitorsChangedId = 0;
         }
         this._teardownStateMonitor();
         this._stopBridge();
-        if (this._area) {
-            this._area.destroy();
-            this._area = null;
-        }
-        if (this._indicator) {
-            this._indicator.destroy();
-            this._indicator = null;
-        }
+        this._area?.destroy();
+        this._area = null;
+        this._indicator?.destroy();
+        this._indicator = null;
         this._bars = null;
         this._hist = null;
     }
 
     // =======================================================================
-    //  Panel flotante con la onda
+    //  Waveform panel
     // =======================================================================
     _buildWavePanel() {
         this._area = new St.DrawingArea({reactive: false, can_focus: false});
         this._area.set_size(PANEL_W, PANEL_H);
         this._area.connect('repaint', () => this._draw());
-        // addTopChrome SIN parámetros a propósito: en GNOME 50 el set de claves
-        // válidas cambió (por ejemplo `affectsInputRegion` fue eliminado y tiraba
-        // "Unrecognized parameter" al cargar la extensión), así que no pasamos
-        // ninguna y quedan los valores por defecto. El panel no captura clics
-        // porque el actor es reactive: false.
+
+        // addTopChrome() is called without parameters on purpose: GNOME 50
+        // removed the `affectsInputRegion` key and passing unknown keys throws
+        // "Unrecognized parameter" while loading the extension. The defaults are
+        // fine, and the actor takes no input because it is not reactive.
         Main.layoutManager.addTopChrome(this._area);
         this._area.hide();
 
-        this._monitorsId = Main.layoutManager.connect('monitors-changed', () => this._reposition());
+        this._monitorsChangedId =
+            Main.layoutManager.connect('monitors-changed', () => this._reposition());
 
-        this._tickId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, TICK_MS, () => {
+        this._paintId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, TICK_MS, () => {
             this._tick();
             return GLib.SOURCE_CONTINUE;
         });
@@ -253,7 +250,7 @@ export default class VoxtypeWaveExtension extends Extension {
             if (ACCENTS[name])
                 return ACCENTS[name];
         } catch (e) {
-            // GNOME sin 'accent-color' (<= 46)
+            // accent-color was added in a later GNOME release
         }
         return ACCENTS.blue;
     }
@@ -279,7 +276,7 @@ export default class VoxtypeWaveExtension extends Extension {
     }
 
     // =======================================================================
-    //  Indicador de la barra superior
+    //  Panel indicator
     // =======================================================================
     _buildIndicator() {
         this._indicator = new PanelMenu.Button(0.5, 'Voxtype', false);
@@ -294,25 +291,25 @@ export default class VoxtypeWaveExtension extends Extension {
         this._indicator.menu.addMenuItem(this._statusItem);
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        this._toggleItem = new PopupMenu.PopupMenuItem('Iniciar daemon');
+        this._toggleItem = new PopupMenu.PopupMenuItem('Start daemon');
         this._toggleItem.connect('activate', () => this._toggleDaemon());
         this._indicator.menu.addMenuItem(this._toggleItem);
 
-        this._restartItem = new PopupMenu.PopupMenuItem('Reiniciar daemon');
+        this._restartItem = new PopupMenu.PopupMenuItem('Restart daemon');
         this._restartItem.connect('activate', () => this._restartDaemon());
         this._indicator.menu.addMenuItem(this._restartItem);
 
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Interruptores que escriben la config de Voxtype. El daemon no recarga
-        // la config en caliente, así que cada cambio reinicia el servicio.
-        this._punctuationItem = new PopupMenu.PopupSwitchMenuItem('Puntuación hablada', false);
+        // These switches write Voxtype's config. The daemon does not reload its
+        // config, so each change restarts the service.
+        this._punctuationItem = new PopupMenu.PopupSwitchMenuItem('Spoken punctuation', false);
         this._punctuationItem.connect('toggled', (item, state) => {
             this._setConfig('text.spoken_punctuation', state);
         });
         this._indicator.menu.addMenuItem(this._punctuationItem);
 
-        this._fillersItem = new PopupMenu.PopupSwitchMenuItem('Quitar muletillas', false);
+        this._fillersItem = new PopupMenu.PopupSwitchMenuItem('Remove filler words', false);
         this._fillersItem.connect('toggled', (item, state) => {
             this._setConfig('text.filter_filler_words', state);
         });
@@ -320,21 +317,20 @@ export default class VoxtypeWaveExtension extends Extension {
 
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        this._openConfigItem = new PopupMenu.PopupMenuItem('Abrir configuración');
+        this._openConfigItem = new PopupMenu.PopupMenuItem('Open configuration');
         this._openConfigItem.connect('activate', () => this._openConfig());
         this._indicator.menu.addMenuItem(this._openConfigItem);
 
         if (!this._unitPath) {
-            // Todavía no corrió `voxtype setup systemd`: avisamos en el menú.
-            this._toggleItem.label.text = 'Falta el servicio (voxtype setup systemd)';
+            this._toggleItem.label.text = 'Service missing (run: voxtype setup systemd)';
             this._toggleItem.setSensitive(false);
             this._restartItem.setSensitive(false);
         } else {
             this._refreshService();
         }
 
-        // Los subprocesos (systemctl, voxtype config) se lanzan al ABRIR el menú,
-        // no en un temporizador: en reposo no gastamos nada.
+        // Subprocesses (systemctl, voxtype config) run when the menu opens, not
+        // from a timer, so nothing is spawned while the extension is idle.
         this._indicator.menu.connect('open-state-changed', (_menu, open) => {
             if (!open)
                 return;
@@ -347,14 +343,11 @@ export default class VoxtypeWaveExtension extends Extension {
     }
 
     // =======================================================================
-    //  Estado del daemon (FileMonitor + reintento + red de seguridad)
+    //  Daemon state (FileMonitor + retry + safety net)
     // =======================================================================
     _startStateWatch() {
         this._refreshState();
         this._setupStateMonitor();
-        // Red de seguridad de bajo coste: un chequeo cada 5 s corrige cualquier
-        // evento perdido (por ejemplo si el daemon recrea el archivo de estado)
-        // y detecta que el proceso murió aunque el archivo no cambie.
         this._safetyId = GLib.timeout_add_seconds(GLib.PRIORITY_LOW, SAFETY_POLL_SECS, () => {
             this._refreshState();
             if (!this._stateMonitor)
@@ -377,8 +370,8 @@ export default class VoxtypeWaveExtension extends Extension {
     _setupStateMonitor() {
         if (this._stateMonitor || !this._area)
             return;
-        // En el login el shell carga la extensión antes de que el daemon cree el
-        // archivo de estado, y monitorear algo que no existe no sirve.
+        // At login the shell loads extensions before the daemon creates the
+        // state file, and monitoring a file that does not exist yet is useless.
         if (!GLib.file_test(STATE_FILE, GLib.FileTest.EXISTS)) {
             this._scheduleMonitorRetry();
             return;
@@ -387,15 +380,16 @@ export default class VoxtypeWaveExtension extends Extension {
             this._stateMonitor = Gio.File.new_for_path(STATE_FILE)
                 .monitor_file(Gio.FileMonitorFlags.NONE, null);
         } catch (e) {
-            logError(e, '[voxtype-wave] no pude monitorear el archivo de estado');
+            logError(e, '[voxtype-wave] could not monitor the state file');
             this._stateMonitor = null;
             this._scheduleMonitorRetry();
             return;
         }
         this._stateMonitorId = this._stateMonitor.connect('changed', (_mon, _file, event) => {
-            if (event === Gio.FileMonitorEvent.DELETED || event === Gio.FileMonitorEvent.MOVED_OUT) {
-                // El archivo se recreó (o el daemon se reinició): soltamos este
-                // monitor y el reintento arma uno nuevo sobre el archivo actual.
+            if (event === Gio.FileMonitorEvent.DELETED ||
+                event === Gio.FileMonitorEvent.MOVED_OUT) {
+                // The file was recreated (daemon restart): drop this monitor and
+                // let the retry arm a new one on the current file.
                 this._teardownStateMonitor();
                 this._scheduleMonitorRetry();
             }
@@ -413,8 +407,8 @@ export default class VoxtypeWaveExtension extends Extension {
         }
     }
 
-    // El archivo de estado sobrevive al daemon, así que la fuente de verdad de
-    // "está corriendo" es el PID file: si el proceso existe, el daemon vive.
+    // The state file outlives the daemon, so liveness comes from the PID file:
+    // if that process exists, the daemon is running.
     _daemonRunning() {
         const raw = readAscii(PID_FILE);
         if (!raw)
@@ -448,7 +442,7 @@ export default class VoxtypeWaveExtension extends Extension {
     }
 
     // =======================================================================
-    //  Acciones del menú
+    //  Menu actions
     // =======================================================================
     _runCommand(argv, callback) {
         let proc;
@@ -456,7 +450,7 @@ export default class VoxtypeWaveExtension extends Extension {
             proc = Gio.Subprocess.new(argv,
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
         } catch (e) {
-            logError(e, `[voxtype-wave] no pude ejecutar ${argv.join(' ')}`);
+            logError(e, `[voxtype-wave] could not run ${argv.join(' ')}`);
             return;
         }
         proc.communicate_utf8_async(null, null, (p, res) => {
@@ -478,8 +472,10 @@ export default class VoxtypeWaveExtension extends Extension {
     _refreshService() {
         this._runSystemctl(['is-active', 'voxtype'], out => {
             this._serviceActive = out === 'active';
-            if (this._toggleItem)
-                this._toggleItem.label.text = this._serviceActive ? 'Detener daemon' : 'Iniciar daemon';
+            if (this._toggleItem) {
+                this._toggleItem.label.text =
+                    this._serviceActive ? 'Stop daemon' : 'Start daemon';
+            }
         });
     }
 
@@ -502,7 +498,6 @@ export default class VoxtypeWaveExtension extends Extension {
         });
     }
 
-    // Lee el valor actual de los interruptores desde la config de Voxtype.
     _refreshSwitches() {
         if (!this._voxtype)
             return;
@@ -514,6 +509,8 @@ export default class VoxtypeWaveExtension extends Extension {
             this._runCommand([this._voxtype, 'config', 'get', key], out => {
                 if (!item)
                     return;
+                // Setting `state` also emits ::toggled, so guard the handler to
+                // avoid writing the config back while we sync the switch.
                 this._updatingSwitches = true;
                 item.state = out.split('\n')[0].trim() === 'true';
                 this._updatingSwitches = false;
@@ -521,8 +518,6 @@ export default class VoxtypeWaveExtension extends Extension {
         }
     }
 
-    // Escribe una clave con el CLI de Voxtype (preserva comentarios y valida) y
-    // reinicia el servicio, porque el daemon no recarga la config en caliente.
     _setConfig(key, value) {
         if (this._updatingSwitches || !this._voxtype)
             return;
@@ -546,26 +541,27 @@ export default class VoxtypeWaveExtension extends Extension {
         try {
             Gio.AppInfo.launch_default_for_uri(target.get_uri(), null);
         } catch (e) {
-            logError(e, '[voxtype-wave] no pude abrir la configuración');
+            logError(e, '[voxtype-wave] could not open the configuration');
         }
     }
 
     // =======================================================================
-    //  Puente de audio
+    //  Audio bridge
     // =======================================================================
     _spawnBridge() {
         if (!this._area)
             return;
         const path = findBridge();
         if (!path) {
-            log('[voxtype-wave] no encontré voxtype-audio-bridge en el PATH ni en ~/.local/bin');
+            console.warn('[voxtype-wave] voxtype-audio-bridge not found; ' +
+                'the waveform will not be shown');
             return;
         }
         try {
             this._bridge = Gio.Subprocess.new([path],
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
         } catch (e) {
-            logError(e, '[voxtype-wave] no pude lanzar voxtype-audio-bridge');
+            logError(e, '[voxtype-wave] could not start voxtype-audio-bridge');
             this._bridge = null;
             return;
         }
@@ -579,7 +575,7 @@ export default class VoxtypeWaveExtension extends Extension {
             try {
                 this._bridge.force_exit();
             } catch (e) {
-                // ya había terminado
+                // already gone
             }
             this._bridge = null;
         }
@@ -596,12 +592,13 @@ export default class VoxtypeWaveExtension extends Extension {
                 line = null;
             }
             if (line === null) {
-                // El bridge terminó: lo relanzamos por si el daemon se reinició.
+                // The bridge exited (for example after a daemon restart): spawn
+                // a new one shortly.
                 this._stopBridge();
-                if (!this._retryId) {
-                    this._retryId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT,
+                if (!this._bridgeRetryId) {
+                    this._bridgeRetryId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT,
                         BRIDGE_RETRY_SECS, () => {
-                            this._retryId = 0;
+                            this._bridgeRetryId = 0;
                             this._spawnBridge();
                             return GLib.SOURCE_REMOVE;
                         });
@@ -623,8 +620,6 @@ export default class VoxtypeWaveExtension extends Extension {
         }
         if (typeof msg.peak !== 'number')
             return;
-        // Guardamos los frames recientes (10 ms cada uno). La onda se dibuja
-        // reflejada desde el centro, así que "lo más nuevo" está en el medio.
         this._hist.unshift({
             peak: msg.peak,
             rms: typeof msg.rms === 'number' ? msg.rms : msg.peak,
@@ -642,7 +637,7 @@ export default class VoxtypeWaveExtension extends Extension {
     }
 
     // =======================================================================
-    //  Animación y dibujo
+    //  Animation and drawing
     // =======================================================================
     _tick() {
         if (!this._area)
@@ -652,23 +647,21 @@ export default class VoxtypeWaveExtension extends Extension {
             ? (GLib.get_monotonic_time() - this._lastFrameUs) / 1000
             : Infinity;
 
-        // Onda "actual" sin scroll: cada barra toma un frame reciente según su
-        // distancia al centro (reflejado), así el centro es lo más nuevo y la
-        // forma se apaga hacia los bordes en vez de correrse hacia un lado.
         const frames = this._hist.length;
         const centre = (BARS - 1) / 2;
         let loudest = 0;
         for (let i = 0; i < BARS; i++) {
             let target = 0;
             if (frames > 0) {
-                const d = Math.abs(i - centre) / centre;          // 0 centro .. 1 borde
+                const d = Math.abs(i - centre) / centre;          // 0 center .. 1 edge
                 const idx = Math.min(frames - 1, Math.floor(d * (frames - 1)));
                 const f = this._hist[idx];
-                // Mezcla peak (envolvente) con rms (textura) para que no sea monótono.
+                // Mixing peak (envelope) and rms (texture) keeps the shape from
+                // looking monotone.
                 const mix = i % 2 === 0 ? f.peak : Math.max(f.rms * 1.4, f.peak * 0.5);
                 target = Math.min(1, mix) * (1 - EDGE_FALLOFF * d);
             }
-            // Ataque rápido, liberación lenta: se siente vivo pero no vibra.
+            // Fast attack, slow release: lively without flickering.
             this._bars[i] = target > this._bars[i] ? target : this._bars[i] * RELEASE;
             loudest = Math.max(loudest, this._bars[i]);
         }
@@ -689,8 +682,8 @@ export default class VoxtypeWaveExtension extends Extension {
             }
         }
 
-        // No gastamos repintados cuando no hay nada que mostrar (importa: la
-        // máquina también corre IA local).
+        // Skip repaints when there is nothing to show: the machine may also be
+        // running heavy local workloads.
         if (this._visible || !this._silent)
             this._area.queue_repaint();
     }
@@ -700,25 +693,24 @@ export default class VoxtypeWaveExtension extends Extension {
         const [w, h] = this._area.get_surface_size();
         const [r, g, b] = this._accent;
 
-        // fondo tipo píldora
+        // pill-shaped background
         cr.setSourceRGBA(0.05, 0.05, 0.07, 0.62);
         roundedRect(cr, 0.5, 0.5, w - 1, h - 1, h / 2);
         cr.fill();
 
-        // borde sutil
+        // subtle border
         cr.setSourceRGBA(1, 1, 1, 0.10);
         cr.setLineWidth(1);
         roundedRect(cr, 0.5, 0.5, w - 1, h - 1, h / 2);
         cr.stroke();
 
-        // barras / línea plana
         const padX = 14;
         const padY = 9;
         const usableW = w - padX * 2;
         const maxH = h - padY * 2;
 
         if (this._silent) {
-            // Sin voz: una línea plana y limpia (nada de barras ni scroll).
+            // Silence: a clean flat line instead of tiny bars.
             cr.setSourceRGBA(r, g, b, FLAT_LINE_ALPHA);
             roundedRect(cr, padX, (h - FLAT_LINE_H) / 2, usableW, FLAT_LINE_H, FLAT_LINE_H / 2);
             cr.fill();
@@ -736,6 +728,7 @@ export default class VoxtypeWaveExtension extends Extension {
             }
         }
 
+        // Release the Cairo context wrapper (GJS convention in repaint handlers).
         if (cr.$dispose)
             cr.$dispose();
     }

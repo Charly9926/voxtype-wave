@@ -85,6 +85,11 @@ cd voxtype-wave
 ./install.sh
 ```
 
+It is also published on [extensions.gnome.org](https://extensions.gnome.org) — search for
+*Voxtype Waveform*. Note that the extensions.gnome.org path installs **only** the extension: the
+Voxtype daemon, `dotool` and the configuration still have to be set up, which is exactly what
+`install.sh` does for you.
+
 The script messages are in English. Options:
 
 | Option | What it does |
@@ -119,7 +124,7 @@ version, with a verification for every step, is in [docs/INSTALL.md](docs/INSTAL
    validate it.
 6. **Service.** `voxtype setup systemd` and `systemctl --user enable --now voxtype`.
 7. **Extension and shortcut.** Copy the 3 files from `extension/` to
-   `~/.local/share/gnome-shell/extensions/voxtype-wave@cmj_pc/` and create the GNOME shortcut
+   `~/.local/share/gnome-shell/extensions/voxtype-wave@charly9926.github.io/` and create the GNOME shortcut
    that calls `~/.local/bin/voxtype record toggle`. Then: log out, log back in, and enable the
    extension.
 
@@ -213,15 +218,14 @@ binaries, the configuration and the models:
   them either.
 - **It uses ~700 MB of disk** for the model.
 - **The extension uses internal shell APIs**, which GNOME does not guarantee across major
-  versions. It is **tested on GNOME 50** (Fedora 44 / GNOME 50.5) and `metadata.json` also
-  declares 51 and 52 so that a version bump does not block it outright; if an API changes, the
-  extension ends up in the ERROR state (without breaking the session) and it is usually a
-  one-line fix (see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)).
-- **The extension uuid is `voxtype-wave@cmj_pc`**. If you rename it, you also have to change the
-  install directory and the `uuid` field in `metadata.json`, because GNOME requires them to
-  match.
-- **The detailed guides in `docs/` are currently written in Spanish.** The README and the
-  installer are in English; translations of the guides are welcome.
+  versions. It is **tested on GNOME 50** (Fedora 44 / GNOME 50.5), and `metadata.json` declares
+  that version only, as extensions.gnome.org requires: after a GNOME release the extension has to
+  be tested and the version added. If an API changes, it ends up in the ERROR state (without
+  breaking the session) and it is usually a one-line fix (see
+  [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)).
+- **The extension uuid is `voxtype-wave@charly9926.github.io`**. If you rename it, you also have
+  to change the install directory and the `uuid` field in `metadata.json`, because GNOME requires
+  them to match.
 
 ## Repository structure
 
@@ -237,6 +241,7 @@ extension/metadata.json
 extension/stylesheet.css
 scripts/gnome-settings.py
 scripts/lib.sh
+scripts/make-release-zip.sh
 docs/INSTALL.md
 docs/TROUBLESHOOTING.md
 docs/HOW-IT-WORKS.md

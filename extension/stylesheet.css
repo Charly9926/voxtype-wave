@@ -1,5 +1,5 @@
-/* voxtype-wave — colores del icono de la barra superior según el estado.
-   Los iconos simbólicos toman el color de la propiedad CSS `color`. */
+/* voxtype-wave — panel icon colors per daemon state.
+   Symbolic icons take their color from the CSS `color` property. */
 
 .voxtype-wave-idle {
     color: #9a9996;

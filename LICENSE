@@ -38,3 +38,7 @@ downloads or installs them from their own sources):
 The voice model and the two Voxtype binaries keep their own licenses; this
 repository only contains the GNOME Shell extension, the installer scripts and
 the configuration template.
+
+Patent/license note for the GNOME Shell extension itself: it is MIT licensed, and
+when distributed through extensions.gnome.org it is provided under terms
+compatible with the GPL-2.0-or-later license that GNOME Shell uses.

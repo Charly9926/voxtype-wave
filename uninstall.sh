@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# voxtype-wave — desinstalador.
+# voxtype-wave — uninstaller.
 #
-# Por defecto quita lo que rompe el escritorio si queda a medias: el servicio,
-# la extensión, el atajo y los binarios. Deja intactos tu configuración y el
-# modelo descargado (670 MB) para que reinstalar sea instantáneo.
+# By default it removes what would leave your desktop half-broken: the service,
+# the extension, the shortcut and the binaries. Your configuration and the
+# downloaded model (670 MB) are left untouched so reinstalling is instant.
 #
-# Uso: ./uninstall.sh [--purge] [-y]
-#   --purge   borra también la config, el modelo y (opcionalmente) el grupo input
-#   -y        no preguntar
+# Usage: ./uninstall.sh [--purge] [-y]
+#   --purge   also delete the config, the model and (optionally) the input group
+#   -y        do not ask
 
 set -euo pipefail
 
@@ -16,7 +16,7 @@ REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib.sh
 source "$REPO_DIR/scripts/lib.sh"
 
-UUID="voxtype-wave@cmj_pc"
+UUID="voxtype-wave@charly9926.github.io"
 SHORTCUT_NAME="Voxtype dictation (toggle)"
 PURGE=0
 EXT_DIR="$HOME/.local/share/gnome-shell/extensions/$UUID"
@@ -26,69 +26,69 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --purge) PURGE=1 ;;
         -y|--yes) ASSUME_YES=1 ;;
-        -h|--help) sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) die "opción desconocida: $1" ;;
+        -h|--help) sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown option: $1" ;;
     esac
     shift
 done
 
-say "1/5  Deteniendo y quitando el servicio"
+say "1/5  Stopping and removing the service"
 if systemctl --user list-unit-files voxtype.service >/dev/null 2>&1; then
     systemctl --user disable --now voxtype.service >/dev/null 2>&1 || true
 fi
 rm -f "$UNIT_DIR/voxtype.service"
 rm -rf "$UNIT_DIR/voxtype.service.d"
 systemctl --user daemon-reload >/dev/null 2>&1 || true
-ok "servicio quitado"
+ok "service removed"
 
-say "2/5  Quitando la extensión de GNOME"
+say "2/5  Removing the GNOME extension"
 python3 "$REPO_DIR/scripts/gnome-settings.py" extension-disable --uuid "$UUID" || true
 rm -rf "$EXT_DIR"
-ok "extensión quitada (desaparece de la barra al reiniciar sesión)"
+ok "extension removed (it disappears from the top bar on next login)"
 
-say "3/5  Quitando el atajo de GNOME"
+say "3/5  Removing the GNOME shortcut"
 python3 "$REPO_DIR/scripts/gnome-settings.py" shortcut-remove \
     --name "$SHORTCUT_NAME" --match-command "voxtype record toggle" || true
-ok "atajo quitado (tus otros atajos quedaron intactos)"
+ok "shortcut removed (your other shortcuts were left untouched)"
 
-say "4/5  Quitando los binarios de ~/.local/bin"
+say "4/5  Removing the binaries from ~/.local/bin"
 rm -f "$BIN_DIR/voxtype" "$BIN_DIR/voxtype-audio-bridge"
-ok "binarios quitados"
+ok "binaries removed"
 
 if [ "$PURGE" = 1 ]; then
-    say "5/5  --purge: config, modelo y grupo input"
+    say "5/5  --purge: config, model and input group"
     rm -rf "$CONF_DIR" "$HOME/.local/share/voxtype"
-    ok "config y modelos borrados"
+    ok "config and models deleted"
 
     if id -nG "$USER" | tr ' ' '\n' | grep -qx input; then
-        if confirm "¿quitarte del grupo 'input'? (sudo gpasswd -d $USER input)"; then
+        if confirm "remove yourself from the 'input' group? (sudo gpasswd -d $USER input)"; then
             sudo gpasswd -d "$USER" input
             NEEDS_RELOGIN=1
         fi
     fi
     if command -v dotool >/dev/null 2>&1; then
-        if confirm "¿desinstalar el paquete dotool? (lo pueden usar otros programas)"; then
+        if confirm "uninstall the dotool package? (other programs may use it)"; then
             . /etc/os-release 2>/dev/null || true
             case "${ID:-}" in
                 fedora|rhel) sudo dnf -y remove dotool || true ;;
                 arch|manjaro|endeavouros) sudo pacman -Rns --noconfirm dotool || true ;;
-                *) warn "quitá dotool a mano" ;;
+                *) warn "remove dotool by hand" ;;
             esac
         fi
     fi
 else
-    say "5/5  Conservando config y modelo (usá --purge para borrarlos)"
+    say "5/5  Keeping config and model (use --purge to delete them)"
     info "config:  $CONF_DIR"
-    info "modelos: $HOME/.local/share/voxtype/models"
+    info "models:  $HOME/.local/share/voxtype/models"
 fi
 
-say "Listo"
+say "Done"
 cat <<EOF
 
-    Para que desaparezca el icono de la barra, cerrá sesión y volvé a entrar.
-    Si querés que no quede rastro del repositorio de dotool en Fedora:
+    For the top-bar icon to disappear, log out and back in.
+    If you want no trace of the dotool repository left on Fedora:
       sudo dnf copr remove smallcms/dotool
 EOF
 if [ "${NEEDS_RELOGIN:-0}" = 1 ]; then
-    printf '    (también hace falta reiniciar sesión para que se aplique el cambio de grupos)\n'
+    printf '    (a re-login is also needed for the group change to take effect)\n'
 fi

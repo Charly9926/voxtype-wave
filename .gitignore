@@ -1,4 +1,4 @@
-# Archivos temporales y de desarrollo
+# Temporary and development files
 *.bak
 *.bak.*
 *.log
@@ -6,5 +6,8 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# Copias locales de la config del usuario (nunca subir credenciales ni rutas)
+# Release ZIPs built for extensions.gnome.org
+dist/
+
+# Local copies of the user configuration (never commit credentials or paths)
 config/config.toml

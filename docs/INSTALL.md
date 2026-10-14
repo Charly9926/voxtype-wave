@@ -1,15 +1,15 @@
-# Instalación paso a paso
+# Step-by-step installation
 
-Hay dos caminos. El **A** es el instalador automático: hace todo lo que describe el camino
-B, con las verificaciones incluidas. El **B** es el mismo procedimiento a mano, explicando
-por qué cada paso y cómo comprobarlo; es el que conviene seguir si querés entender qué toca
-cada pieza, o si el instalador falló en algo puntual.
+There are two paths. **A** is the automatic installer: it does everything path B describes,
+verifications included. **B** is the same procedure by hand, explaining why each step is needed
+and how to check it; it is the one to follow if you want to understand what each piece touches,
+or if the installer failed at some specific point.
 
-En ambos casos, al final hay que **cerrar sesión y volver a entrar**.
+In both cases, at the end you have to **log out and back in**.
 
 ---
 
-## Camino A — instalador automático
+## Path A — automatic installer
 
 ```bash
 git clone https://github.com/Charly9926/voxtype-wave.git
@@ -18,67 +18,67 @@ cd voxtype-wave
 ```
 
 
-| Opción | Qué hace |
+| Option | What it does |
 |---|---|
-| `--no-model` | No descarga el modelo (670 MB); queda para hacerlo después a mano |
-| `--hotkey '<Super><Shift>v'` | Usa otra tecla en vez de F9 |
-| `--no-service` | No instala ni habilita el servicio systemd |
-| `--yes` | Responde que sí a todo (no interactivo) |
-| `--help` | Muestra la ayuda |
+| `--no-model` | Does not download the model (670 MB); it is left for doing later by hand |
+| `--hotkey '<Super><Shift>v'` | Uses another key instead of F9 |
+| `--no-service` | Does not install or enable the systemd service |
+| `--yes` | Answers yes to everything (non-interactive) |
+| `--help` | Shows the help |
 
-El script instala y verifica: `dotool`, el acceso a `/dev/uinput`, los binarios de Voxtype y
-el bridge, el modelo, la configuración, el servicio de usuario y la extensión con su atajo.
-Para el atajo usa `scripts/gnome-settings.py`, que **agrega** una entrada nueva sin pisar los
-atajos personalizados que ya tengas.
+The script installs and verifies: `dotool`, access to `/dev/uinput`, the Voxtype binaries and
+the bridge, the model, the configuration, the user service and the extension with its shortcut.
+For the shortcut it uses `scripts/gnome-settings.py`, which **adds** a new entry without
+overwriting the custom shortcuts you already have.
 
-Al terminar te va a pedir cerrar sesión. Después del login, la extensión queda habilitada y
-podés probar F9.
+When it finishes it will ask you to log out. After logging back in, the extension is enabled and
+you can try F9.
 
 ---
 
-## Camino B — paso a paso manual
+## Path B — manual step by step
 
-Los pasos que usan rutas relativas al repositorio (`config/`, `extension/`, `scripts/`) se
-ejecutan desde la carpeta donde lo clonaste. En los ejemplos esa carpeta se llama `$REPO`:
-definila una vez y ajustala si lo clonaste en otro lado.
+The steps that use paths relative to the repository (`config/`, `extension/`, `scripts/`) are run
+from the folder where you cloned it. In the examples that folder is called `$REPO`: define it
+once and adjust it if you cloned it somewhere else.
 
 ```bash
 REPO="$HOME/voxtype-wave"
 cd "$REPO"
 ```
 
-### Paso 1 — Requisitos previos
+### Step 1 — Prerequisites
 
-Necesitás **GNOME Shell 50 en Wayland** (probado en Fedora 44 con GNOME 50.5; el
-`metadata.json` de la extensión declara también 51 y 52), sesión de systemd de usuario,
-`pipewire-alsa` (el daemon captura audio por ALSA sobre PipeWire), `wl-clipboard` y `curl`.
+You need **GNOME Shell 50 on Wayland** (tested on Fedora 44 with GNOME 50.5; the extension's
+`metadata.json` also declares 51 and 52), a systemd user session, `pipewire-alsa` (the daemon
+captures audio through ALSA on top of PipeWire), `wl-clipboard` and `curl`.
 
-Comprobalo así:
+Check it like this:
 
 ```bash
-# versión de GNOME y sesión
+# GNOME version and session
 gnome-shell --version
-echo "$XDG_SESSION_TYPE"          # tiene que decir: wayland
+echo "$XDG_SESSION_TYPE"          # it has to say: wayland
 
-# paquetes (Fedora)
+# packages (Fedora)
 rpm -q pipewire-alsa wl-clipboard curl
 ```
 
-Si falta alguno:
+If something is missing:
 
 ```bash
 sudo dnf install pipewire-alsa wl-clipboard curl
 ```
 
-`pipewire-alsa` es importante: sin él, el daemon no encuentra el dispositivo de audio y vas a
-ver errores de "device not available".
+`pipewire-alsa` matters: without it, the daemon does not find the audio device and you will see
+"device not available" errors.
 
-### Paso 2 — Instalar dotool
+### Step 2 — Install dotool
 
-`dotool` es el que manda el acorde de pegado (Ctrl+Shift+V) al portapapeles del sistema. Sin
-él, el texto se transcribe y queda en el portapapeles, pero no aparece solo en el cursor.
+`dotool` is what sends the paste chord (Ctrl+Shift+V) to the system clipboard. Without it, the
+text is transcribed and stays in the clipboard, but it does not appear at the cursor by itself.
 
-**Fedora** (está en un COPR de terceros, es un paquete hoja):
+**Fedora** (it is in a third-party COPR, it is a leaf package):
 
 ```bash
 sudo dnf copr enable smallcms/dotool
@@ -91,7 +91,7 @@ sudo dnf install dotool
 sudo pacman -S dotool
 ```
 
-**Debian / Ubuntu** (no está empaquetado; se compila):
+**Debian / Ubuntu** (not packaged; it is compiled):
 
 ```bash
 sudo apt install libxkbcommon-dev
@@ -99,57 +99,57 @@ git clone https://git.sr.ht/~geb/dotool
 cd dotool && ./build.sh && sudo install -Dm755 dotool /usr/local/bin/dotool
 ```
 
-Verificación:
+Verification:
 
 ```bash
 command -v dotool
 ```
 
-Tiene que imprimir la ruta del binario. Si no imprime nada, no quedó en el `PATH`.
+It has to print the path of the binary. If it prints nothing, it did not end up in the `PATH`.
 
-### Paso 3 — Verificar el acceso a `/dev/uinput`
+### Step 3 — Verify access to `/dev/uinput`
 
-`dotool` escribe eventos de teclado a través de `/dev/uinput`. En muchos sistemas tu usuario
-ya tiene permiso por una ACL de `uaccess`; en otros hace falta pertenecer al grupo `input`.
+`dotool` writes keyboard events through `/dev/uinput`. On many systems your user already has
+permission through a `uaccess` ACL; on others you need to belong to the `input` group.
 
 ```bash
-[ -w /dev/uinput ] && echo OK || echo FALTA
+[ -w /dev/uinput ] && echo OK || echo MISSING
 ```
 
-Si dice `FALTA`:
+If it says `MISSING`:
 
 ```bash
 sudo usermod -aG input "$USER"
 ```
 
-y **cerrá sesión y volvé a entrar** (no alcanza con `newgrp`, porque el daemon se inicia con
-la sesión). Después del login, comprobá que el grupo esté activo:
+and **log out and back in** (running `newgrp` is not enough, because the daemon starts with the
+session). After logging in, check that the group is active:
 
 ```bash
 id | tr ',' '\n' | grep input
 ```
 
-Nota de seguridad: el grupo `input` permite leer **todo** el teclado, no solo la tecla de
-dictado. Es el mismo requisito que tienen otras herramientas de este tipo.
+Security note: the `input` group allows reading **the whole** keyboard, not just the dictation
+key. It is the same requirement other tools of this kind have.
 
-### Paso 4 — Descargar los binarios de Voxtype y el bridge
+### Step 4 — Download the Voxtype binaries and the bridge
 
-Voxtype se distribuye con binarios standalone por release. Hay que bajar dos: el daemon (en la
-variante que corresponda a tu CPU) y el bridge de audio, que convierte el socket de audio del
-daemon en NDJSON para que lo lea la extensión.
+Voxtype is distributed as standalone binaries per release. You have to download two: the daemon
+(in the variant that matches your CPU) and the audio bridge, which turns the daemon's audio
+socket into NDJSON so that the extension can read it.
 
-Las variantes publicadas en el release v1.1.0 son:
+The variants published in release v1.1.0 are:
 
-| Arquitectura | Variante | Archivo |
+| Architecture | Variant | File |
 |---|---|---|
-| x86_64 con AVX-512 | `onnx-avx512` | `voxtype-1.1.0-linux-x86_64-onnx-avx512` |
-| x86_64 sin AVX-512 | `onnx-avx2` | `voxtype-1.1.0-linux-x86_64-onnx-avx2` |
+| x86_64 with AVX-512 | `onnx-avx512` | `voxtype-1.1.0-linux-x86_64-onnx-avx512` |
+| x86_64 without AVX-512 | `onnx-avx2` | `voxtype-1.1.0-linux-x86_64-onnx-avx2` |
 | aarch64 | `onnx` | `voxtype-1.1.0-linux-aarch64-onnx` |
 
-El bridge se llama `voxtype-1.1.0-linux-<arquitectura>-audio-bridge`.
+The bridge is called `voxtype-1.1.0-linux-<architecture>-audio-bridge`.
 
-Este bloque elige la variante sola, baja todo y **verifica la integridad** contra el
-`SHA256SUMS.txt` publicado antes de instalar:
+This block picks the variant by itself, downloads everything and **verifies integrity** against
+the published `SHA256SUMS.txt` before installing:
 
 ```bash
 base=https://github.com/peteonrails/voxtype/releases/download/v1.1.0
@@ -168,13 +168,13 @@ curl -fLO "$base/$bin"
 curl -fLO "$base/$bridge"
 curl -fLO "$base/SHA256SUMS.txt"
 
-# integridad: cada archivo debe decir OK
+# integrity: every file has to say OK
 grep -E "$bin|$bridge" SHA256SUMS.txt | sha256sum -c -
 ```
 
-Si alguna línea no dice `OK`, no sigas: volvé a descargar el archivo.
+If any line does not say `OK`, do not continue: download the file again.
 
-Instalación:
+Installation:
 
 ```bash
 install -Dm755 "$bin" ~/.local/bin/voxtype
@@ -183,32 +183,32 @@ install -Dm755 "$bridge" ~/.local/bin/voxtype-audio-bridge
 voxtype --version
 ```
 
-Tiene que imprimir `voxtype 1.1.0`. `~/.local/bin` suele estar en el `PATH` en Fedora; si
-`voxtype --version` no se encuentra, usá la ruta completa `~/.local/bin/voxtype` o agregá esa
-carpeta a tu `PATH`.
+It has to print `voxtype 1.1.0`. On Fedora `~/.local/bin` is usually in `PATH`; if
+`voxtype --version` is not found, use the full path `~/.local/bin/voxtype` or add that folder to
+your `PATH`.
 
-Volvé a la raíz del repositorio antes de seguir (el paso anterior te dejó en `~/Downloads`):
+Go back to the repository root before continuing (the previous step left you in `~/Downloads`):
 
 ```bash
 cd "$REPO"
 ```
 
-### Paso 5 — Descargar el modelo
+### Step 5 — Download the model
 
 ```bash
 voxtype setup --download --model parakeet-tdt-0.6b-v3-int8
 ```
 
-Son ~670 MB y quedan en `~/.local/share/voxtype/models/`.
+They are ~670 MB and stay in `~/.local/share/voxtype/models/`.
 
-Por qué la variante **int8** y no la de precisión completa: el modelo fp32 ocupa 2,5 GB,
-mientras que el int8 ocupa 670 MB, y este último además se acelera por hardware si tu CPU
-tiene `avx512_vnni` (comprobalo con `grep -qm1 avx512_vnni /proc/cpuinfo && echo si`). Con la
-carga bajo demanda que trae la configuración, el modelo se carga al apretar la tecla y se
-libera al terminar, así que en reposo no ocupa memoria. Si preferís máxima precisión, existe
-`parakeet-tdt-0.6b-v3` (2,5 GB); se cambia con una línea en el archivo de configuración.
+Why the **int8** variant and not the full-precision one: the fp32 model takes 2.5 GB, while int8
+takes 670 MB, and the latter is also hardware-accelerated if your CPU has `avx512_vnni` (check it
+with `grep -qm1 avx512_vnni /proc/cpuinfo && echo yes`). With the on-demand loading the
+configuration ships with, the model is loaded when you press the key and released when you
+finish, so at rest it takes no memory. If you prefer maximum accuracy, `parakeet-tdt-0.6b-v3`
+(2.5 GB) exists; it is changed with one line in the configuration file.
 
-### Paso 6 — Instalar la configuración
+### Step 6 — Install the configuration
 
 ```bash
 cd "$REPO"
@@ -216,21 +216,20 @@ mkdir -p ~/.config/voxtype
 cp config/voxtype-config.toml ~/.config/voxtype/config.toml
 ```
 
-Validación (si hay algo mal escrito, Voxtype avisa y descarta esa sección):
+Validation (if something is misspelled, Voxtype warns and discards that section):
 
 ```bash
 voxtype config 2>&1 | grep -i warn || echo OK
 ```
 
-La plantilla ya trae lo necesario para este setup: motor `parakeet` con el modelo int8 y carga
-bajo demanda, el hotkey interno de Voxtype desactivado (el atajo lo maneja GNOME), salida por
-portapapeles con pegado automático vía `dotool`, el OSD propio desactivado (lo reemplaza la
-extensión), notificaciones de escritorio apagadas, pitidos activados y detección de voz con el
-backend `energy`.
+The template already ships what this setup needs: the `parakeet` engine with the int8 model and
+on-demand loading, Voxtype's built-in hotkey disabled (GNOME handles the shortcut), clipboard
+output with automatic pasting through `dotool`, its own OSD disabled (the extension replaces it),
+desktop notifications off, beeps on, and voice activity detection with the `energy` backend.
 
-### Paso 7 — Servicio de usuario systemd
+### Step 7 — systemd user service
 
-Así el daemon arranca solo en cada inicio de sesión, sin abrir una terminal:
+This way the daemon starts on its own at every login, without opening a terminal:
 
 ```bash
 voxtype setup systemd
@@ -238,17 +237,16 @@ systemctl --user enable --now voxtype
 systemctl --user status voxtype --no-pager
 ```
 
-En el estado tenés que ver `Active: active (running)` y, en reposo, un consumo de memoria de
-unos pocos MB.
+In the status you have to see `Active: active (running)` and, at rest, a memory usage of a few MB.
 
-**Si el pegado no funciona**, revisá que el servicio herede `WAYLAND_DISPLAY`: el modo de
-salida usa `wl-copy`, que lo necesita para hablar con el compositor.
+**If pasting does not work**, check that the service inherits `WAYLAND_DISPLAY`: the output mode
+uses `wl-copy`, which needs it to talk to the compositor.
 
 ```bash
 systemctl --user show-environment | grep WAYLAND_DISPLAY
 ```
 
-Si no imprime nada, agregá una gota (drop-in) al servicio:
+If it prints nothing, add a drop-in to the service:
 
 ```bash
 mkdir -p ~/.config/systemd/user/voxtype.service.d
@@ -257,45 +255,45 @@ systemctl --user daemon-reload
 systemctl --user restart voxtype
 ```
 
-### Paso 8 — Instalar la extensión y crear el atajo
+### Step 8 — Install the extension and create the shortcut
 
-La extensión es la que dibuja la onda. Son tres archivos:
+The extension is what draws the waveform. It is three files:
 
 ```bash
 cd "$REPO"
-mkdir -p ~/.local/share/gnome-shell/extensions/voxtype-wave@cmj_pc
+mkdir -p ~/.local/share/gnome-shell/extensions/voxtype-wave@charly9926.github.io
 cp extension/extension.js extension/metadata.json extension/stylesheet.css \
-   ~/.local/share/gnome-shell/extensions/voxtype-wave@cmj_pc/
+   ~/.local/share/gnome-shell/extensions/voxtype-wave@charly9926.github.io/
 ```
 
-El nombre de la carpeta **tiene que coincidir** con el campo `uuid` de `metadata.json`
-(`voxtype-wave@cmj_pc`): si renombrás uno, cambiá el otro.
+The folder name **has to match** the `uuid` field in `metadata.json` (`voxtype-wave@charly9926.github.io`): if
+you rename one, change the other.
 
-Ahora el atajo. El comando es siempre el mismo:
+Now the shortcut. The command is always the same:
 
 ```
 ~/.local/bin/voxtype record toggle
 ```
 
-**Opción simple, por interfaz:** Configuración → Teclado → Ver y personalizar atajos →
-Atajos personalizados → `+`. Nombre `Dictado (toggle)`, el comando de arriba, y cuando pida la
-tecla apretá **F9**.
+**Simple option, through the UI:** Settings → Keyboard → View and Customize Shortcuts → Custom
+Shortcuts → `+`. Name `Voxtype dictation (toggle)`, the command above, and when it asks for the
+key press **F9**.
 
-**Opción por consola.** Cuidado: la lista de atajos personalizados es una sola, así que hay que
-**agregar** la entrada nueva sin borrar las que ya tenías. Primero mirá qué tenés:
+**Console option.** Careful: there is a single custom-shortcut list, so you have to **add** the
+new entry without deleting the ones you already had. First look at what you have:
 
 ```bash
 gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings
 ```
 
-Supongamos que la lista que devuelve incluye `custom0`. Entonces creás el nuevo como `custom2`
-y después publicás la lista **completa** (las viejas más la nueva):
+Suppose the list it returns includes `custom0`. Then you create the new one as `custom2` and
+afterwards you publish the **complete** list (the old ones plus the new one):
 
 ```bash
 S=org.gnome.settings-daemon.plugins.media-keys.custom-keybinding
 B=/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom2/
 
-gsettings set "$S:$B" name 'Dictado (toggle)'
+gsettings set "$S:$B" name 'Voxtype dictation (toggle)'
 gsettings set "$S:$B" command "$HOME/.local/bin/voxtype record toggle"
 gsettings set "$S:$B" binding 'F9'
 
@@ -303,47 +301,47 @@ gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings \
   "['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/', '/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom2/']"
 ```
 
-La última línea es la crítica: tiene que listar **todas** las entradas que querés conservar. Si
-te equivocás ahí, perdés los otros atajos personalizados (se vuelven a crear desde la interfaz).
-El instalador del repo evita este riesgo usando `scripts/gnome-settings.py`, que lee la lista
-actual y le agrega la entrada nueva.
+The last line is the critical one: it has to list **all** the entries you want to keep. If you get
+that wrong, you lose the other custom shortcuts (they can be created again from the UI). The
+repository installer avoids this risk by using `scripts/gnome-settings.py`, which reads the
+current list and appends the new entry.
 
-### Paso 9 — Cerrar sesión, habilitar y probar
+### Step 9 — Log out, enable and test
 
-Cerrá sesión y volvé a entrar. Es necesario por dos motivos: GNOME no carga extensiones nuevas
-en caliente, y si tuviste que agregarte al grupo `input`, el cambio recién ahí toma efecto.
+Log out and back in. This is needed for two reasons: GNOME does not load new extensions on the
+fly, and if you had to add yourself to the `input` group, the change only takes effect then.
 
-Después habilitá la extensión. Por interfaz: aplicación **Extensiones** → **Voxtype Waveform** →
-interruptor. Por consola:
+Then enable the extension. Through the UI: **Extensions** app → **Voxtype Waveform** → the
+switch. Through the console:
 
 ```bash
-gnome-extensions enable voxtype-wave@cmj_pc
+gnome-extensions enable voxtype-wave@charly9926.github.io
 ```
 
-Prueba:
+Test:
 
-1. Poné el cursor en un campo de texto cualquiera.
-2. Apretá **F9**: tiene que sonar el pitido, aparecer la onda abajo al centro y ponerse rojo el
-   icono de la barra superior.
-3. Hablá unos segundos.
-4. Apretá **F9** otra vez: el icono pasa a ámbar un instante y el texto aparece pegado en el
+1. Put the cursor in any text field.
+2. Press **F9**: the beep has to sound, the waveform has to appear at the bottom center and the
+   top-bar icon has to turn red.
+3. Speak for a few seconds.
+4. Press **F9** again: the icon turns amber for a moment and the text appears pasted at the
    cursor.
 
 ---
 
-## Verificación final
+## Final verification
 
 ```bash
-# la extensión: tiene que decir Enabled: Yes y State: ACTIVE (o ENABLED)
-gnome-extensions info voxtype-wave@cmj_pc
+# the extension: it has to say Enabled: Yes and State: ACTIVE (or ENABLED)
+gnome-extensions info voxtype-wave@charly9926.github.io
 
-# el daemon: Active: active (running)
+# the daemon: Active: active (running)
 systemctl --user status voxtype --no-pager
 
-# errores de la extensión en esta sesión (no debería imprimir nada)
+# extension errors in this session (it should print nothing)
 journalctl --user -b -g voxtype-wave --no-pager | tail -30
 ```
 
-## Si algo no funciona
+## If something does not work
 
-Ver [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+See [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md).

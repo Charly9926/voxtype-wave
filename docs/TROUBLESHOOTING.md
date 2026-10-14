@@ -1,131 +1,132 @@
-# Solución de problemas
+# Troubleshooting
 
-Este documento cubre los fallos conocidos del setup de dictado por voz, que está formado por
-tres piezas:
+This document covers the known failures of the voice dictation setup, which is made of three
+pieces:
 
-- el daemon `voxtype` (binario standalone en `~/.local/bin/voxtype`), corriendo como servicio
-  de usuario systemd;
-- `voxtype-audio-bridge` (binario standalone en `~/.local/bin/voxtype-audio-bridge`), que
-  convierte el socket de audio del daemon en NDJSON;
-- la extensión de GNOME Shell `voxtype-wave@cmj_pc`, que dibuja la onda y el icono de estado.
+- the `voxtype` daemon (standalone binary at `~/.local/bin/voxtype`), running as a systemd user
+  service;
+- `voxtype-audio-bridge` (standalone binary at `~/.local/bin/voxtype-audio-bridge`), which turns
+  the daemon's audio socket into NDJSON;
+- the GNOME Shell extension `voxtype-wave@charly9926.github.io`, which draws the waveform and the status icon.
 
-Nada de esto depende de internet ni de servicios externos: el audio se captura y se transcribe
-en la máquina. Casi todos los problemas se diagnostican mirando el journal y el estado de la
-extensión.
+None of this depends on internet or on external services: audio is captured and transcribed on
+the machine. Almost every problem is diagnosed by looking at the journal and at the extension
+state.
 
-Si es la primera vez que lo instalás, ver `docs/INSTALL.md`.
+If this is your first install, see `docs/INSTALL.md`.
 
 ---
 
-## No aparece la onda
+## The waveform does not appear
 
-**Causa probable.** El panel flotante se dibuja **solo mientras se está grabando**: el daemon
-emite tramas de audio únicamente durante la grabación. Si no estás grabando, no hay nada que
-mostrar. Las otras causas son que el daemon no esté corriendo, que falte el binario
-`voxtype-audio-bridge`, o que la extensión no esté cargada.
+**Likely cause.** The floating panel is drawn **only while recording**: the daemon emits audio
+frames only during a recording. If you are not recording, there is nothing to show. The other
+causes are that the daemon is not running, that the `voxtype-audio-bridge` binary is missing, or
+that the extension is not loaded.
 
-**Diagnóstico.**
+**Diagnosis.**
 
 ```bash
-# 1. ¿el daemon está vivo?
+# 1. is the daemon alive?
 systemctl --user status voxtype --no-pager
 
-# 2. ¿el bridge existe y es ejecutable?
+# 2. does the bridge exist and is it executable?
 ls -l ~/.local/bin/voxtype-audio-bridge
 
-# 3. ¿la extensión está cargada?
-gnome-extensions info voxtype-wave@cmj_pc
+# 3. is the extension loaded?
+gnome-extensions info voxtype-wave@charly9926.github.io
 
-# 4. ¿llegan tramas desde el daemon? (dictá mientras corre)
+# 4. are frames arriving from the daemon? (dictate while it runs)
 ~/.local/bin/voxtype-audio-bridge
 ```
 
-El comando 4 es el más directo: si dictás y no aparecen líneas `{"peak":...}`, el problema está
-en el daemon (ver "El daemon no arranca"). Si esas líneas aparecen y la onda sigue sin verse, el
-problema está en la extensión (ver "La extensión aparece con error / no carga").
+Command 4 is the most direct one: if you dictate and no `{"peak":...}` lines show up, the problem
+is in the daemon (see "The daemon does not start"). If those lines do appear and the waveform is
+still missing, the problem is in the extension (see "The extension shows an error / does not
+load").
 
-**Solución.**
+**Solution.**
 
-- Si falta el bridge, reinstalá los binarios con `./install.sh` o copiá `voxtype-audio-bridge`
-  del release a `~/.local/bin/` con permisos de ejecución.
-- Si la extensión está en `ERROR` o `OUT_OF_DATE`, seguí esa sección.
-- Tené en cuenta que el archivo de estado `$XDG_RUNTIME_DIR/voxtype/state` **sobrevive** al
-  daemon. La extensión no lo usa para saber si el daemon vive: mira el PID file
-  `$XDG_RUNTIME_DIR/voxtype/pid` y comprueba que exista `/proc/<pid>`.
+- If the bridge is missing, reinstall the binaries with `./install.sh` or copy
+  `voxtype-audio-bridge` from the release into `~/.local/bin/` with execute permissions.
+- If the extension is in `ERROR` or `OUT_OF_DATE`, follow that section.
+- Keep in mind that the state file `$XDG_RUNTIME_DIR/voxtype/state` **outlives** the daemon. The
+  extension does not use it to tell whether the daemon is alive: it looks at the PID file
+  `$XDG_RUNTIME_DIR/voxtype/pid` and checks that `/proc/<pid>` exists.
 
 ---
 
-## El texto no se pega
+## The text is not pasted
 
-**Causa probable.** En orden de frecuencia:
+**Likely cause.** In order of frequency:
 
-1. `dotool` no está instalado o no puede escribir en `/dev/uinput`.
-2. El hook `post_output_command` está mal escrito: `dotool` lee sus comandos por **stdin**, no
-   por argumentos.
-3. `wl-copy` falla porque el servicio no tiene `WAYLAND_DISPLAY`.
-4. Se está usando el modo `paste` de Voxtype, que no acepta `dotool` para mandar el acorde.
+1. `dotool` is not installed, or it cannot write to `/dev/uinput`.
+2. The `post_output_command` hook is written wrong: `dotool` reads its commands from **stdin**,
+   not from arguments.
+3. `wl-copy` fails because the service has no `WAYLAND_DISPLAY`.
+4. Voxtype's `paste` mode is being used, and it does not accept `dotool` for sending the chord.
 
-**Diagnóstico.**
+**Diagnosis.**
 
 ```bash
-# ¿dotool está instalado y puede escribir en uinput?
-command -v dotool && [ -w /dev/uinput ] && echo "uinput OK" || echo "sin acceso a /dev/uinput"
+# is dotool installed and can it write to uinput?
+command -v dotool && [ -w /dev/uinput ] && echo "uinput OK" || echo "no access to /dev/uinput"
 
-# ¿el portapapeles funciona?
-printf 'prueba' | wl-copy && wl-paste
+# does the clipboard work?
+printf 'test' | wl-copy && wl-paste
 
-# ¿el hook está bien escrito?
+# is the hook written correctly?
 grep post_output_command ~/.config/voxtype/config.toml
 
-# ¿qué dice el daemon?
+# what does the daemon say?
 journalctl --user -u voxtype -n 50 --no-pager
 ```
 
-**Solución.**
+**Solution.**
 
-- **Permisos de `dotool`:** `sudo usermod -aG input "$USER"` y cerrar sesión. La regla udev de
-  `/dev/uinput` la trae el paquete `dotool`. Nota de seguridad: pertenecer al grupo `input`
-  permite leer todo el teclado de la máquina. Si el sistema ya le da acceso a `/dev/uinput` al
-  usuario activo por ACL (`uaccess`), el grupo no hace falta; el listener evdev de Voxtype está
-  desactivado en este setup, así que el grupo solo se necesita para `dotool`.
-- **Hook correcto:**
+- **`dotool` permissions:** `sudo usermod -aG input "$USER"` and log out. The udev rule for
+  `/dev/uinput` ships with the `dotool` package. Security note: belonging to the `input` group
+  lets you read the whole keyboard of the machine. If the system already gives the active user
+  access to `/dev/uinput` through an ACL (`uaccess`), the group is not needed; Voxtype's evdev
+  listener is disabled in this setup, so the group is only needed for `dotool`.
+- **Correct hook:**
   ```toml
   post_output_command = "sleep 0.2; echo 'key ctrl+shift+v' | dotool"
   ```
-  Sin la tubería, el hook falla con
+  Without the pipe, the hook fails with
   `dotool: there should be no arguments, commands are read from stdin`.
-- **El modo `paste` no sirve en GNOME.** Internamente Voxtype solo prueba `wtype`, `eitype` o
-  `ydotool` para mandar el acorde; los strings del binario lo dicen:
-  `No keystroke tool available (tried wtype, eitype, ydotool)`. `dotool` no está en esa lista, y
-  `wtype` no funciona porque Mutter no implementa `zwp_virtual_keyboard_v1`. La combinación que
-  funciona es modo clipboard más el hook con `dotool`:
+- **`paste` mode does not work on GNOME.** Internally Voxtype only tries `wtype`, `eitype` or
+  `ydotool` to send the chord; the binary strings say so:
+  `No keystroke tool available (tried wtype, eitype, ydotool)`. `dotool` is not in that list, and
+  `wtype` does not work because Mutter does not implement `zwp_virtual_keyboard_v1`. The
+  combination that works is clipboard mode plus the `dotool` hook:
   ```toml
   [output]
   mode = "clipboard"
   restore_clipboard = false
   post_output_command = "sleep 0.2; echo 'key ctrl+shift+v' | dotool"
   ```
-- **Verificación directa del inyector**, con el cursor en un campo de texto:
+- **Direct check of the injector**, with the cursor in a text field:
   ```bash
-  echo type "prueba ñ á é í" | dotool
+  echo type "test ñ á é í" | dotool
   ```
-  En un layout `us` los acentos van a dar aviso (ver "Acentos o caracteres raros"); eso no impide
-  que el acorde `ctrl+shift+v` funcione.
-- Si el acorde no entra en alguna aplicación concreta (por ejemplo un editor donde
-  `ctrl+shift+v` significa otra cosa), probá `ctrl+v` en el hook.
+  On a `us` layout the accents will warn (see "Accents or odd characters"); that does not stop
+  the `ctrl+shift+v` chord from working.
+- If the chord does not land in one particular application (for example an editor where
+  `ctrl+shift+v` means something else), try `ctrl+v` in the hook.
 
 ---
 
-## No pasa nada al apretar F9
+## Nothing happens when pressing F9
 
-**Causa probable.** El atajo personalizado de GNOME no existe, apunta a un comando equivocado, o
-el daemon no está corriendo. Los atajos de GNOME deben usar la **ruta absoluta** del binario,
-porque no heredan el `PATH` de la shell.
+**Likely cause.** The GNOME custom shortcut does not exist, it points to the wrong command, or the
+daemon is not running. GNOME shortcuts must use the **absolute path** of the binary, because they
+do not inherit the shell's `PATH`.
 
-**Diagnóstico.**
+**Diagnosis.**
 
 ```bash
-# ¿existe el atajo y a qué apunta?
+# does the shortcut exist and where does it point?
 S=org.gnome.settings-daemon.plugins.media-keys.custom-keybinding
 B=/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom2/
 gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings
@@ -133,80 +134,79 @@ gsettings get "$S:$B" name
 gsettings get "$S:$B" command
 gsettings get "$S:$B" binding
 
-# ¿el daemon responde al comando del atajo?
+# does the daemon answer the shortcut's command?
 voxtype record toggle
 ```
 
-Si el daemon no corre, `record toggle` responde `Error: Voxtype daemon is not running.`
+If the daemon is not running, `record toggle` answers `Error: Voxtype daemon is not running.`
 
-**Solución.**
+**Solution.**
 
-- Recrear el atajo con `./install.sh`, o a mano en Configuración → Teclado → Ver y personalizar
-  atajos → Atajos personalizados: nombre libre, comando
-  `/home/<usuario>/.local/bin/voxtype record toggle`, tecla F9.
-- Si el daemon no está corriendo, ver la sección siguiente.
-- Si F9 lo captura otra aplicación, cambiá la tecla del atajo (y, si querés, la del indicador de
-  estado no cambia: el icono de la barra es independiente).
+- Recreate the shortcut with `./install.sh`, or by hand in Settings → Keyboard → View and
+  Customize Shortcuts → Custom Shortcuts: any name, command
+  `/home/<user>/.local/bin/voxtype record toggle`, key F9.
+- If the daemon is not running, see the next section.
+- If another application captures F9, change the shortcut key (and, if you want, the status
+  indicator does not change: the top-bar icon is independent).
 
 ---
 
-## La extensión aparece con error / no carga
+## The extension shows an error / does not load
 
-**Diagnóstico.**
+**Diagnosis.**
 
 ```bash
-gnome-extensions info voxtype-wave@cmj_pc
+gnome-extensions info voxtype-wave@charly9926.github.io
 journalctl --user -b -g voxtype-wave --no-pager | tail -30
 ```
 
-El campo `State` puede ser:
+The `State` field can be:
 
-| Estado | Significado | Qué hacer |
+| State | Meaning | What to do |
 |---|---|---|
-| `ENABLED` | cargada y funcionando | nada |
-| `OUT_OF_DATE` | GNOME cambió de versión mayor y el `metadata.json` no la declara | ver "Después de actualizar GNOME" |
-| `ERROR` | falló al cargar: la traza del journal indica archivo y línea | leer la traza y corregir la API |
+| `ENABLED` | loaded and working | nothing |
+| `OUT_OF_DATE` | GNOME moved to a new major version and `metadata.json` does not declare it | see "After updating GNOME" |
+| `ERROR` | it failed to load: the journal trace points at the file and the line | read the trace and fix the API |
 
-**Caso conocido (GNOME 50).** En GNOME 50, `Main.layoutManager.addChrome()` acepta **solo**
-`trackFullscreen` y `affectsStruts`. El parámetro `affectsInputRegion` existía en versiones
-anteriores y fue eliminado:
+**Known case (GNOME 50).** On GNOME 50, `Main.layoutManager.addChrome()` accepts **only**
+`trackFullscreen` and `affectsStruts`. The `affectsInputRegion` parameter existed in earlier
+versions and was removed:
 
 ```
 Error: Unrecognized parameter "affectsInputRegion"
   addChrome@resource:///org/gnome/shell/ui/layout.js
-  _buildWavePanel@file:///.../voxtype-wave@cmj_pc/extension.js
+  _buildWavePanel@file:///.../voxtype-wave@charly9926.github.io/extension.js
 ```
 
-La solución es pasar solo esos dos parámetros. Un error de carga **no rompe la sesión**: la
-extensión queda en estado `ERROR` y el escritorio sigue funcionando.
+The fix is to pass only those two parameters. A load error **does not break the session**: the
+extension stays in the `ERROR` state and the desktop keeps working.
 
-**Editar la extensión exige cerrar sesión.** GNOME cachea el módulo ES, así que al recargar
-aparece:
+**Editing the extension requires logging out.** GNOME caches the ES module, so on reload you get:
 
 ```
 A different version was loaded previously. You need to log out for changes to take effect.
 ```
 
-Para probar cambios sin cerrar sesión:
+To test changes without logging out:
 
 ```bash
 dbus-run-session -- gnome-shell --nested --wayland
 ```
 
-Eso abre una shell de GNOME dentro de una ventana, que carga las mismas extensiones desde el
-mismo directorio. Dos advertencias: en esa sesión anidada no corre el servicio de atajos, así
-que **F9 no funciona** y la grabación se dispara con `voxtype record toggle` desde otra
-terminal; y para salir se cierra la ventana o se pulsa Ctrl+C.
+That opens a GNOME Shell inside a window, which loads the same extensions from the same directory.
+Two warnings: in that nested session the keyboard-shortcut service does not run, so **F9 does not
+work** and recording is triggered with `voxtype record toggle` from another terminal; and to exit
+you close the window or press Ctrl+C.
 
-**Red de seguridad de GNOME.** Si el shell se cae con extensiones habilitadas, al siguiente
-login GNOME las desactiva (archivo `gnome-shell-disable-extensions` en el runtime dir). Es
-decir: una extensión rota no deja el escritorio inutilizable de forma permanente.
+**GNOME's safety net.** If the shell crashes with extensions enabled, on the next login GNOME
+disables them (file `gnome-shell-disable-extensions` in the runtime dir). That is: a broken
+extension does not leave the desktop permanently unusable.
 
 ---
 
-## El daemon no arranca
+## The daemon does not start
 
-**Diagnóstico.**
+**Diagnosis.**
 
 ```bash
 systemctl --user status voxtype --no-pager
@@ -214,160 +214,161 @@ journalctl --user -u voxtype -f
 systemctl --user show-environment | grep WAYLAND_DISPLAY
 ```
 
-**Causas y soluciones.**
+**Causes and solutions.**
 
-- **Falta `WAYLAND_DISPLAY`.** En modo clipboard, Voxtype llama a `wl-copy`, que necesita esa
-  variable. Si no aparece en el entorno del gestor de systemd, agregá un drop-in:
+- **Missing `WAYLAND_DISPLAY`.** In clipboard mode, Voxtype calls `wl-copy`, which needs that
+  variable. If it does not show up in the systemd manager's environment, add a drop-in:
   ```bash
   mkdir -p ~/.config/systemd/user/voxtype.service.d
   printf '[Service]\nEnvironment=WAYLAND_DISPLAY=wayland-0\n' > ~/.config/systemd/user/voxtype.service.d/wayland.conf
   systemctl --user daemon-reload
   systemctl --user restart voxtype
   ```
-- **PID file de un daemon anterior.** Si antes lo corriste a mano y quedó un PID file, el
-  arranque lo detecta y lo limpia solo (`Removing stale pid file`). No requiere acción.
-- **Arrancarlo con `voxtype daemon -v`.** Eso falla: `-v` es un flag **global** y va antes del
-  subcomando. El error es `unexpected argument '-v' found`. La forma correcta es:
+- **PID file from a previous daemon.** If you ran it by hand before and a PID file was left
+  behind, startup detects it and cleans it up on its own (`Removing stale pid file`). No action
+  required.
+- **Starting it with `voxtype daemon -v`.** That fails: `-v` is a **global** flag and goes before
+  the subcommand. The error is `unexpected argument '-v' found`. The correct form is:
   ```bash
   voxtype -v daemon
   ```
-- **Config o modelo faltantes.** Chequeo general:
+- **Missing config or model.** General check:
   ```bash
   voxtype setup check
   ```
-- La unidad es de usuario: `~/.config/systemd/user/voxtype.service`, con
-  `PartOf=graphical-session.target` y `Environment=XDG_RUNTIME_DIR=%t`. Para que arranque al
-  iniciar sesión: `systemctl --user enable voxtype`.
+- The unit is a user unit: `~/.config/systemd/user/voxtype.service`, with
+  `PartOf=graphical-session.target` and `Environment=XDG_RUNTIME_DIR=%t`. To make it start at
+  login: `systemctl --user enable voxtype`.
 
 ---
 
-## El dictado tarda o la RAM sube
+## Dictation is slow or RAM goes up
 
-**Qué es esperable (no es un problema).**
+**What is expected (not a problem).**
 
-- La primera frase de cada dictado tarda alrededor de **1,5 s**: el modelo se carga bajo demanda
-  (`on_demand_loading = true`) y se libera al terminar.
-- La transcripción en sí tarda alrededor de **0,1 s** por frase.
-- El daemon ocupa **~6 MB en reposo** (pico medido: 9,3 MB). El modelo int8 ocupa 670 MB en
-  disco y solo está en memoria mientras dictás.
-- El motor corre en **CPU con AVX-512 y no usa GPU ni VRAM**, así que no compite con otras
-  cargas de GPU.
+- The first sentence of each dictation takes around **1.5 s**: the model is loaded on demand
+  (`on_demand_loading = true`) and released when it finishes.
+- The transcription itself takes around **0.1 s** per sentence.
+- The daemon uses **~6 MB when idle** (measured peak: 9.3 MB). The int8 model takes 670 MB on disk
+  and is only in memory while you dictate.
+- The engine runs on the **CPU with AVX-512 and uses no GPU or VRAM**, so it does not compete with
+  other GPU workloads.
 
-**Diagnóstico.**
+**Diagnosis.**
 
 ```bash
-free -h                                        # antes y después de dictar
+free -h                                        # before and after dictating
 grep on_demand_loading ~/.config/voxtype/config.toml
-journalctl --user -u voxtype -n 30 --no-pager  # buscar la carga del modelo
+journalctl --user -u voxtype -n 30 --no-pager  # look for the model load
 ```
 
-**Solución.**
+**Solution.**
 
-- Si la RAM no vuelve después de dictar, confirmá que la config tenga
+- If RAM does not come back after dictating, confirm that the config has
   `[parakeet] on_demand_loading = true`.
-- Si preferís menos latencia a cambio de RAM permanente, poné `on_demand_loading = false`: el
-  modelo queda cargado (los 670 MB dejan de liberarse).
+- If you prefer less latency in exchange for permanent RAM, set `on_demand_loading = false`: the
+  model stays loaded (the 670 MB stop being released).
 
 ---
 
-## Acentos o caracteres raros
+## Accents or odd characters
 
-**Causa.** Con un layout de teclado `us`, `dotool` no puede escribir acentos:
+**Cause.** With a `us` keyboard layout, `dotool` cannot type accents:
 
 ```
 dotool: WARNING: impossible character for layout: ñ
 dotool: WARNING: impossible character for layout: á
 ```
 
-Por eso este setup **pega** el texto (Unicode exacto a través del portapapeles) en lugar de
-escribirlo con eventos de teclado. `dotool` se usa solo para mandar el acorde `ctrl+shift+v`, que
-no depende del layout.
+That is why this setup **pastes** the text (exact Unicode through the clipboard) instead of typing
+it with key events. `dotool` is only used to send the `ctrl+shift+v` chord, which does not depend
+on the layout.
 
-**Diagnóstico.**
+**Diagnosis.**
 
 ```bash
 localectl status | grep -i layout
-echo type "prueba ñ á é í" | dotool
+echo type "test ñ á é í" | dotool
 ```
 
-**Solución.**
+**Solution.**
 
-- Mantené `[output] mode = "clipboard"` más el hook con `dotool`: es lo que evita el problema.
-- Si el pegado no entra en una aplicación concreta, probá `ctrl+v` en lugar de `ctrl+shift+v`.
-- No intentes resolverlo con `mode = "type"`: escribiría sin acentos o con caracteres
-  equivocados, porque traduce texto a teclas según el layout activo.
+- Keep `[output] mode = "clipboard"` plus the `dotool` hook: that is what avoids the problem.
+- If the paste does not land in one particular application, try `ctrl+v` instead of
+  `ctrl+shift+v`.
+- Do not try to solve it with `mode = "type"`: it would type without accents or with the wrong
+  characters, because it translates text into keys according to the active layout.
 
 ---
 
-## Después de actualizar GNOME
+## After updating GNOME
 
-Una actualización mayor de GNOME puede dejar la extensión en dos estados distintos:
+A major GNOME update can leave the extension in two different states:
 
-- **`State: OUT_OF_DATE`.** Es el campo `shell-version` de `metadata.json`. GNOME compara solo
-  el número mayor (el shell 51.x contra la entrada `"51"`). Solución: agregar el número nuevo a
-  la lista del campo.
-- **`State: ERROR`.** Cambió una API interna del shell. La traza del journal indica el archivo y
-  la línea exactos.
+- **`State: OUT_OF_DATE`.** That is the `shell-version` field in `metadata.json`. GNOME compares
+  only the major number (shell 51.x against the `"51"` entry). Fix: add the new number to the
+  field's list.
+- **`State: ERROR`.** An internal shell API changed. The journal trace points at the exact file
+  and line.
 
 ```bash
-gnome-extensions info voxtype-wave@cmj_pc
+gnome-extensions info voxtype-wave@charly9926.github.io
 journalctl --user -b -g voxtype-wave --no-pager | tail -30
 ```
 
-Las actualizaciones normales de Fedora (kernel, Mesa, PipeWire, systemd, drivers) no afectan a
-la extensión, que vive en `~/.local` y no depende de paquetes del sistema más allá del propio
-GNOME Shell.
+Normal Fedora updates (kernel, Mesa, PipeWire, systemd, drivers) do not affect the extension,
+which lives in `~/.local` and depends on no system packages beyond GNOME Shell itself.
 
-**Los binarios de Voxtype no se actualizan con `dnf`:** son standalone en `~/.local/bin`. Se
-actualizan con `./update-voxtype.sh` o bajando el release nuevo a mano y verificando
+**Voxtype's binaries are not updated by `dnf`:** they are standalone in `~/.local/bin`. They are
+updated with `./update-voxtype.sh` or by downloading the new release by hand and verifying
 `SHA256SUMS.txt`.
 
 ---
 
-## Diagnóstico en 30 segundos
+## 30-second diagnosis
 
 ```bash
-# 1. ¿el daemon vive y está sano?
+# 1. is the daemon alive and healthy?
 systemctl --user status voxtype --no-pager
 
-# 2. ¿la extensión está cargada?
-gnome-extensions info voxtype-wave@cmj_pc
+# 2. is the extension loaded?
+gnome-extensions info voxtype-wave@charly9926.github.io
 
-# 3. ¿salen tramas de audio? (dictá mientras corre)
+# 3. are audio frames coming out? (dictate while it runs)
 ~/.local/bin/voxtype-audio-bridge
 
-# 4. ¿hay errores del shell?
+# 4. are there shell errors?
 journalctl --user -b -g voxtype-wave --no-pager | tail -30
 ```
 
-Comandos extra según el síntoma:
+Extra commands depending on the symptom:
 
 ```bash
-voxtype setup check                         # dependencias y configuración
-journalctl --user -u voxtype -f             # daemon en vivo
-echo type "prueba ñ á é í" | dotool         # inyector de texto directo
-free -h                                     # la RAM debe volver tras dictar
+voxtype setup check                         # dependencies and configuration
+journalctl --user -u voxtype -f             # live daemon
+echo type "test ñ á é í" | dotool            # direct text injector
+free -h                                     # RAM should come back after dictating
 ```
 
 ---
 
-## Cómo reportar un problema
+## How to report a problem
 
-Pegá en el issue, en este orden:
+Paste into the issue, in this order:
 
-1. Versión del sistema: `uname -r` y `rpm -E %fedora`.
-2. Versión de GNOME: `gnome-shell --version`.
-3. Estado de la extensión: `gnome-extensions info voxtype-wave@cmj_pc`.
-4. Errores del shell filtrados:
+1. System version: `uname -r` and `rpm -E %fedora`.
+2. GNOME version: `gnome-shell --version`.
+3. Extension state: `gnome-extensions info voxtype-wave@charly9926.github.io`.
+4. Filtered shell errors:
    ```bash
    journalctl --user -b -g voxtype-wave --no-pager | tail -30
    ```
-5. Si el problema es el daemon:
+5. If the problem is the daemon:
    ```bash
    systemctl --user status voxtype --no-pager
    ```
-6. Si el problema es la transcripción o la salida del texto:
+6. If the problem is transcription or text output:
    ```bash
    journalctl --user -u voxtype -n 50 --no-pager
    ```
-7. Qué aplicación tenía el foco, qué hiciste y qué esperabas que pasara.
+7. Which application had focus, what you did, and what you expected to happen.
