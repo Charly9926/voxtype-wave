@@ -49,9 +49,10 @@ cd "$REPO"
 
 ### Step 1 — Prerequisites
 
-You need **GNOME Shell 50 on Wayland** (tested on Fedora 44 with GNOME 50.5; the extension's
-`metadata.json` also declares 51 and 52), a systemd user session, `pipewire-alsa` (the daemon
-captures audio through ALSA on top of PipeWire), `wl-clipboard` and `curl`.
+You need **GNOME Shell 50 or 51 on Wayland** (tested on Fedora 44 with GNOME 50.5 and Fedora 45
+with GNOME 51.1; the extension's `metadata.json` declares both), a systemd user session,
+`pipewire-alsa` (the daemon captures audio through ALSA on top of PipeWire), `wl-clipboard` and
+`curl`. The input-device picker also uses `pactl`, which ships with PipeWire's PulseAudio tools.
 
 Check it like this:
 

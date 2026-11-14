@@ -1,94 +1,57 @@
-# Voxtype configuration for push-to-talk dictation with a GNOME custom shortcut.
+# Voxtype configuration for push-to-talk dictation through a GNOME custom shortcut.
 # Copy to: ~/.config/voxtype/config.toml
-# Engine: Parakeet v3 (int8) on CPU, loaded on demand.
 
 state_file = "auto"
 
-# NOTE: 'engine' is a top-level key, it must come before any [table] header.
+# Top-level key: it must come before any [table] header.
 engine = "parakeet"
 
 [hotkey]
-# The trigger is a GNOME custom shortcut (F9 -> `voxtype record toggle`), so
-# Voxtype's own evdev listener stays off. That way Voxtype never opens
-# /dev/input and cannot latch onto the wrong device (some gaming mice expose an
-# interface that pretends to be a full keyboard).
+# The shortcut is handled by GNOME (F9 -> `voxtype record toggle`), so Voxtype's
+# own device listener stays off.
 enabled = false
-key = "F9"                # unused while enabled = false; kept for clarity
-mode = "toggle"           # press to start recording, press again to stop
+key = "F9"
+mode = "toggle"
 
 [audio]
-device = "default"        # "default" follows the system default input source
+device = "default"
 sample_rate = 16000
 max_duration_secs = 120
-pause_media = false       # no MPRIS player worth pausing while dictating
+pause_media = false
 
 [audio.feedback]
-# Beeps when recording starts and stops: with toggle mode this is the clearest
-# signal that the microphone is live.
-enabled = true
+enabled = true                # beep when recording starts and stops
 volume = 0.7
 
 [parakeet]
-# int8 quantization: 670 MB on disk instead of 2.5 GB for fp32, and modern CPUs
-# accelerate it in hardware (avx512_vnni / avx512_bf16). Loaded only while
-# dictating and released afterwards.
-# For maximum accuracy (4x more RAM, slightly slower):
-#   model = "parakeet-tdt-0.6b-v3"
-#   voxtype setup --download --model parakeet-tdt-0.6b-v3
-model = "parakeet-tdt-0.6b-v3-int8"
-model_type = "tdt"        # TDT = punctuation and capitalization included
-on_demand_loading = true  # load on keypress, release when done => ~0 MB idle
+model = "parakeet-tdt-0.6b-v3-int8"   # int8: 670 MB. Use "parakeet-tdt-0.6b-v3" for fp32
+model_type = "tdt"
+on_demand_loading = true              # load while dictating, release afterwards
 
 [output]
-# CLIPBOARD MODE: the transcript goes to the clipboard and the paste chord is
-# sent by the hook below. "paste" mode cannot be used here because Voxtype only
-# accepts wtype/eitype/ydotool as the keystroke tool for the chord ("No keystroke
-# tool available (tried wtype, eitype, ydotool)"), and on GNOME wtype is not an
-# option: Mutter does not implement zwp_virtual_keyboard_v1.
+# Clipboard output plus a dotool hook: Voxtype's "paste" mode cannot send the
+# paste chord on GNOME, since it only accepts wtype/eitype/ydotool for that.
 mode = "clipboard"
-restore_clipboard = false             # keep the transcript in the clipboard
+restore_clipboard = false
 driver_order = ["dotool", "ydotool", "clipboard"]
 fallback_to_clipboard = true
-auto_submit = false                   # never press Enter on its own
-
-# Automatic paste without extra software: the hook runs in clipboard mode and
-# dotool reads its commands from STDIN, not from arguments ("dotool: there
-# should be no arguments, commands are read from stdin"). The sleep gives
-# wl-copy time to register the selection before the chord is sent.
+auto_submit = false
 post_output_command = "sleep 0.2; echo 'key ctrl+shift+v' | dotool"
-# For apps where Ctrl+Shift+V means something else, use:
-#   post_output_command = "sleep 0.2; echo 'key ctrl+v' | dotool"
-# (Ctrl+V does not paste in terminals; those need Ctrl+Shift+V.)
 
 [output.notification]
-# Disabled: the waveform OSD already gives visual feedback. Beeps stay on in
-# [audio.feedback].
 on_recording_start = false
 on_recording_stop = false
 on_transcription = false
 
 [text]
-# NOTE: both options below are English-only.
-#   spoken_punctuation turns "period" into . , "comma" into , , "new line", etc.
-#   filter_filler_words removes uh/um/er/ah/eh/hmm/hm/mm/mhm.
-# For other languages, define your own words here.
+# spoken_punctuation and the filler-word list are English-only.
 spoken_punctuation = false
 filter_filler_words = true
-# Replace the default filler list with your own:
-# filler_words = ["uh", "um", "like", "you know"]
-#
-# Literal substitutions (language independent), applied after transcribing:
-# [text.replacements]
-# "period" = "."
-# "comma" = ","
-# "new line" = "\n"
 
 [vad]
-enabled = true                        # drop silence-only recordings (avoids hallucinations)
-backend = "energy"                    # RMS based, no extra model to download
-threshold = 0.4                       # raise to 0.6, or disable VAD, if speech is rejected
+enabled = true                # drop silence-only recordings
+backend = "energy"
+threshold = 0.4
 
 [osd]
-# Voxtype's own OSD needs wlr-layer-shell, which Mutter does not implement
-# (upstream issue #807), so it is disabled here; the GNOME extension replaces it.
-enabled = false
+enabled = false               # the GNOME extension replaces Voxtype's own OSD

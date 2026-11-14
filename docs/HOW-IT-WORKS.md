@@ -242,12 +242,20 @@ opened** or when an action is taken, never from a periodic timer.
 
 Besides the state and starting/stopping/restarting the daemon, the menu has:
 
+- an **Input device** submenu that lists the PipeWire sources (`pactl --format=json list sources`,
+  with `.monitor` entries filtered out). It writes `audio.device` with `voxtype config set` and
+  restarts the service. A dot marks the device Voxtype is configured to use, `System default`
+  shows what PipeWire resolves to, and the device PipeWire uses as default is annotated;
 - two switches (**Spoken punctuation** and **Remove filler words**) that write the corresponding
   key with `voxtype config set` —which preserves comments and validates the value— and then
   restart the service, because **Voxtype does not reload its configuration on the fly** (its own
   CLI says so when writing: `Restart voxtype to apply: systemctl --user restart voxtype`);
 - **Open configuration**, which launches `~/.config/voxtype/config.toml` with the default editor
   (if the file does not exist yet, it opens the folder).
+
+The menu is built with `PopupMenu.PopupMenuSection`, so GNOME draws it with the same grouped
+popover style as its own menus. Everything that lists or reads state (devices, switches, service
+status) is refreshed when the menu opens, never on a timer.
 
 > **Note on language.** The spoken-punctuation vocabulary and the default filler-word list are
 > English-only; for other languages use `text.replacements` (literal substitutions, independent of

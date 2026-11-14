@@ -1,7 +1,7 @@
 {
   "uuid": "voxtype-wave@charly9926.github.io",
   "name": "Voxtype Waveform",
-  "description": "Audio waveform OSD and status indicator for the Voxtype push-to-talk dictation daemon.\n\nWhile you dictate it draws a floating waveform at the bottom of the screen and shows the daemon state (ready / recording / transcribing) in the top bar, with a menu to start, stop or restart the daemon, switches for two Voxtype text options and a shortcut to its configuration file. It targets GNOME on Wayland, where Voxtype's own OSD cannot render because Mutter does not implement the wlr-layer-shell protocol.\n\nRequires the voxtype daemon and its voxtype-audio-bridge sidecar to be installed and running (https://github.com/peteonrails/voxtype). The extension does not bundle, download or modify them.",
-  "shell-version": ["50"],
+  "description": "Audio waveform OSD and status indicator for the Voxtype push-to-talk dictation daemon.\n\nWhile you dictate it draws a floating waveform at the bottom of the screen and shows the daemon state (ready / recording / transcribing) in the top bar. Its menu can start, stop or restart the daemon, pick the input device, toggle two Voxtype text options and open the configuration file. It targets GNOME on Wayland, where Voxtype's own OSD cannot render because Mutter does not implement the wlr-layer-shell protocol.\n\nRequires the voxtype daemon and its voxtype-audio-bridge sidecar to be installed and running (https://github.com/peteonrails/voxtype). The extension does not bundle, download or modify them.",
+  "shell-version": ["50", "51"],
   "url": "https://github.com/Charly9926/voxtype-wave"
 }

@@ -5,8 +5,8 @@ built on [Voxtype](https://github.com/peteonrails/voxtype). Press F9, speak, pre
 the text is pasted at the cursor, and a waveform panel appears at the bottom of the screen
 while you talk. Everything runs locally — no internet, no GPU.
 
-Requirements: GNOME Shell 50 on Wayland (tested on Fedora 44 / GNOME 50.5), `pipewire-alsa`,
-`wl-clipboard`, `dotool`, `curl`, and ~700 MB of disk for the model.
+Requirements: GNOME Shell 50 or 51 on Wayland (tested on Fedora 44 / GNOME 50.5 and Fedora 45 /
+GNOME 51.1), `pipewire-alsa`, `wl-clipboard`, `dotool`, `curl`, and ~700 MB of disk for the model.
 
 ```bash
 git clone https://github.com/Charly9926/voxtype-wave.git
@@ -54,9 +54,10 @@ there as-is (Omarchy already ships it integrated with Quickshell).
    at the cursor wherever you were typing. The panel fades out on its own.
 
 The **top-bar icon** shows the state: ready, recording or transcribing. Left-clicking it opens
-a menu with the current state, **start / stop / restart the daemon**, switches for two Voxtype
-options (**spoken punctuation** and **filler-word removal**), and **Open configuration**, which
-opens `~/.config/voxtype/config.toml` in your default editor. Flipping a switch writes the option
+a menu with the current state, **start / stop / restart the daemon**, an **Input device** submenu
+that lists your microphones (read from PipeWire) and marks the one in use, switches for two
+Voxtype options (**spoken punctuation** and **filler-word removal**), and **Open configuration**,
+which opens `~/.config/voxtype/config.toml` in your default editor. Every change writes the option
 through `voxtype config set` (comments and validation preserved) and restarts the daemon, because
 Voxtype does not reload its config on the fly. So you never need a terminal to manage it.
 
@@ -65,8 +66,8 @@ with a 2 s retry until the file exists at login and a 5 s low-cost safety check.
 
 ## Requirements
 
-- **GNOME Shell 50 on Wayland** (tested on Fedora 44 with GNOME 50.5; `metadata.json` also
-  declares 51 and 52; the extension uses internal shell APIs).
+- **GNOME Shell 50 or 51 on Wayland** (tested on Fedora 44 with GNOME 50.5 and Fedora 45 with
+  GNOME 51.1; `metadata.json` declares both; the extension uses internal shell APIs).
 - A systemd user session (standard on GNOME).
 - `pipewire-alsa` (the daemon captures audio through ALSA on top of PipeWire).
 - `wl-clipboard` (text is delivered through the clipboard).
@@ -218,11 +219,11 @@ binaries, the configuration and the models:
   them either.
 - **It uses ~700 MB of disk** for the model.
 - **The extension uses internal shell APIs**, which GNOME does not guarantee across major
-  versions. It is **tested on GNOME 50** (Fedora 44 / GNOME 50.5), and `metadata.json` declares
-  that version only, as extensions.gnome.org requires: after a GNOME release the extension has to
-  be tested and the version added. If an API changes, it ends up in the ERROR state (without
-  breaking the session) and it is usually a one-line fix (see
-  [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)).
+  versions. It is **tested on GNOME 50 and 51** (Fedora 44 / GNOME 50.5 and Fedora 45 / GNOME
+  51.1), and `metadata.json` declares exactly those: extensions.gnome.org requires listing only
+  tested stable releases, so after a GNOME bump the extension has to be tested and the new major
+  added. If an API changes, it ends up in the ERROR state (without breaking the session) and it is
+  usually a one-line fix (see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)).
 - **The extension uuid is `voxtype-wave@charly9926.github.io`**. If you rename it, you also have
   to change the install directory and the `uuid` field in `metadata.json`, because GNOME requires
   them to match.

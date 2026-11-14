@@ -9,8 +9,9 @@
 //
 // The extension does two things:
 //   1. a floating waveform panel at the bottom center while recording;
-//   2. a top-bar icon with the daemon state, a menu to start/stop/restart the
-//      daemon, two Voxtype option switches and a shortcut to the config file.
+//   2. a top-bar icon with the daemon state and a menu to manage the daemon,
+//      pick the input device, toggle two Voxtype text options and open its
+//      configuration file.
 //
 // Data: it spawns `voxtype-audio-bridge`, which exposes the daemon's audio
 // socket as NDJSON on stdout, one line per 10 ms frame:
@@ -178,6 +179,7 @@ export default class VoxtypeWaveExtension extends Extension {
         this._monitorRetryId = 0;
         this._safetyId = 0;
         this._updatingSwitches = false;
+        this._deviceItems = [];
         this._accent = this._readAccent();
         this._unitPath = findVoxtypeUnit();
         this._voxtype = findVoxtype();
@@ -217,6 +219,7 @@ export default class VoxtypeWaveExtension extends Extension {
         this._indicator = null;
         this._bars = null;
         this._hist = null;
+        this._deviceItems = null;
     }
 
     // =======================================================================
@@ -287,35 +290,42 @@ export default class VoxtypeWaveExtension extends Extension {
         });
         this._indicator.add_child(this._icon);
 
-        this._statusItem = new PopupMenu.PopupMenuItem('Voxtype', {reactive: false});
-        this._indicator.menu.addMenuItem(this._statusItem);
-        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        // Sections give the menu the grouped look of a native GNOME popover.
+        const statusSection = new PopupMenu.PopupMenuSection();
+        this._indicator.menu.addMenuItem(statusSection);
+        this._statusItem = new PopupMenu.PopupMenuItem('Voxtype');
+        this._statusItem.setSensitive(false);
+        statusSection.addMenuItem(this._statusItem);
 
+        const daemonSection = new PopupMenu.PopupMenuSection();
+        this._indicator.menu.addMenuItem(daemonSection);
         this._toggleItem = new PopupMenu.PopupMenuItem('Start daemon');
         this._toggleItem.connect('activate', () => this._toggleDaemon());
-        this._indicator.menu.addMenuItem(this._toggleItem);
-
+        daemonSection.addMenuItem(this._toggleItem);
         this._restartItem = new PopupMenu.PopupMenuItem('Restart daemon');
-        this._restartItem.connect('activate', () => this._restartDaemon());
-        this._indicator.menu.addMenuItem(this._restartItem);
+        this._restartItem.connect('activate', () => this._restartService());
+        daemonSection.addMenuItem(this._restartItem);
 
-        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const inputSection = new PopupMenu.PopupMenuSection();
+        this._indicator.menu.addMenuItem(inputSection);
+        this._inputItem = new PopupMenu.PopupSubMenuMenuItem('Input device', true);
+        this._inputItem.icon.icon_name = 'audio-input-microphone-symbolic';
+        inputSection.addMenuItem(this._inputItem);
 
         // These switches write Voxtype's config. The daemon does not reload its
         // config, so each change restarts the service.
+        const textSection = new PopupMenu.PopupMenuSection();
+        this._indicator.menu.addMenuItem(textSection);
         this._punctuationItem = new PopupMenu.PopupSwitchMenuItem('Spoken punctuation', false);
         this._punctuationItem.connect('toggled', (item, state) => {
             this._setConfig('text.spoken_punctuation', state);
         });
-        this._indicator.menu.addMenuItem(this._punctuationItem);
-
+        textSection.addMenuItem(this._punctuationItem);
         this._fillersItem = new PopupMenu.PopupSwitchMenuItem('Remove filler words', false);
         this._fillersItem.connect('toggled', (item, state) => {
             this._setConfig('text.filter_filler_words', state);
         });
-        this._indicator.menu.addMenuItem(this._fillersItem);
-
-        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        textSection.addMenuItem(this._fillersItem);
 
         this._openConfigItem = new PopupMenu.PopupMenuItem('Open configuration');
         this._openConfigItem.connect('activate', () => this._openConfig());
@@ -329,17 +339,109 @@ export default class VoxtypeWaveExtension extends Extension {
             this._refreshService();
         }
 
-        // Subprocesses (systemctl, voxtype config) run when the menu opens, not
-        // from a timer, so nothing is spawned while the extension is idle.
+        // Subprocesses (systemctl, voxtype config, pactl) run when the menu
+        // opens, not from a timer, so nothing is spawned while idle.
         this._indicator.menu.connect('open-state-changed', (_menu, open) => {
             if (!open)
                 return;
             if (this._unitPath)
                 this._refreshService();
             this._refreshSwitches();
+            this._refreshInputDevices();
         });
 
         Main.panel.addToStatusArea('voxtype-wave', this._indicator);
+    }
+
+    // =======================================================================
+    //  Input device picker
+    // =======================================================================
+    _refreshInputDevices() {
+        if (!this._inputItem)
+            return;
+        const submenu = this._inputItem.menu;
+        submenu.removeAll();
+        this._deviceItems = [];
+        // Reopening the menu while `pactl` is still running must not append the
+        // list twice, so only the newest request is allowed to fill the submenu.
+        const generation = this._deviceGeneration = (this._deviceGeneration ?? 0) + 1;
+
+        const addDevice = (label, device) => {
+            const item = new PopupMenu.PopupMenuItem(label);
+            item.voxtypeDevice = device;
+            item.voxtypeLabel = label;
+            item.connect('activate', () => this._setInputDevice(device));
+            submenu.addMenuItem(item);
+            this._deviceItems.push(item);
+        };
+
+        addDevice('System default', 'default');
+
+        if (!this._voxtype) {
+            submenu.addMenuItem(new PopupMenu.PopupMenuItem('voxtype not found',
+                {reactive: false}));
+            return;
+        }
+
+        this._runCommand(['pactl', '--format=json', 'list', 'sources'], out => {
+            if (!this._inputItem || generation !== this._deviceGeneration)
+                return;
+            let sources = [];
+            try {
+                sources = JSON.parse(out) ?? [];
+            } catch (e) {
+                sources = [];
+            }
+            const mics = (Array.isArray(sources) ? sources : [])
+                .filter(s => s && typeof s.name === 'string' && !s.name.endsWith('.monitor'))
+                .sort((a, b) => String(a.description ?? a.name)
+                    .localeCompare(String(b.description ?? b.name)));
+
+            for (const mic of mics)
+                addDevice(String(mic.description || mic.name), mic.name);
+
+            if (mics.length === 0) {
+                submenu.addMenuItem(new PopupMenu.PopupMenuItem('No input devices found',
+                    {reactive: false}));
+            }
+            this._refreshDeviceMarks();
+        });
+    }
+
+    // Dot on the device in use, plus a hint on the one PipeWire uses as default.
+    _refreshDeviceMarks() {
+        if (!this._voxtype || !this._deviceItems?.length)
+            return;
+
+        this._runCommand([this._voxtype, 'config', 'get', 'audio.device'], out => {
+            if (!this._deviceItems)
+                return;
+            const current = out.split('\n')[0].trim() || 'default';
+            for (const item of this._deviceItems) {
+                const active = item.voxtypeDevice === current;
+                item.setOrnament(active ? PopupMenu.Ornament.DOT : PopupMenu.Ornament.NONE);
+            }
+        });
+
+        this._runCommand(['pactl', 'get-default-source'], out => {
+            const def = out.split('\n')[0].trim();
+            if (!def || !this._deviceItems)
+                return;
+            for (const item of this._deviceItems) {
+                if (item.voxtypeDevice === 'default')
+                    item.label.text = `System default  (${def})`;
+                else if (item.voxtypeDevice === def)
+                    item.label.text = `${item.voxtypeLabel}  ·  system default`;
+            }
+        });
+    }
+
+    _setInputDevice(device) {
+        if (!this._voxtype)
+            return;
+        this._runCommand([this._voxtype, 'config', 'set', 'audio.device', device], () => {
+            this._restartService();
+        });
     }
 
     // =======================================================================
@@ -489,7 +591,10 @@ export default class VoxtypeWaveExtension extends Extension {
         });
     }
 
-    _restartDaemon() {
+    // Restart and refresh the menu label once the daemon is back.
+    _restartService() {
+        if (!this._unitPath)
+            return;
         this._runSystemctl(['restart', 'voxtype'], () => {
             GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1200, () => {
                 this._refreshService();
@@ -522,14 +627,7 @@ export default class VoxtypeWaveExtension extends Extension {
         if (this._updatingSwitches || !this._voxtype)
             return;
         this._runCommand([this._voxtype, 'config', 'set', key, String(value)], () => {
-            if (!this._unitPath)
-                return;
-            this._runSystemctl(['restart', 'voxtype'], () => {
-                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1200, () => {
-                    this._refreshService();
-                    return GLib.SOURCE_REMOVE;
-                });
-            });
+            this._restartService();
         });
     }
 

@@ -72,8 +72,8 @@ preflight() {
         ver="$(gnome-shell --version 2>/dev/null | awk '{print $NF}')"
         major="${ver%%.*}"
         case "$major" in
-            50) ok "GNOME Shell $ver" ;;
-            *) warn "GNOME Shell $ver: the extension is tested on GNOME 50 (Fedora 44 / GNOME 50.5)" ;;
+            50|51) ok "GNOME Shell $ver" ;;
+            *) warn "GNOME Shell $ver: the extension is tested on GNOME 50 and 51" ;;
         esac
     else
         warn "gnome-shell not found; this setup is for GNOME on Wayland"

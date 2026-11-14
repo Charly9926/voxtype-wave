@@ -307,7 +307,9 @@ A major GNOME update can leave the extension in two different states:
 
 - **`State: OUT_OF_DATE`.** That is the `shell-version` field in `metadata.json`. GNOME compares
   only the major number (shell 51.x against the `"51"` entry). Fix: add the new number to the
-  field's list.
+  field's list. The current list is `["50", "51"]`; this is the most common cause of "the icon
+  suddenly disappeared" after a Fedora upgrade (it happened with Fedora 45 / GNOME 51.1). Note
+  that extensions.gnome.org only accepts tested stable releases, so do not list unreleased ones.
 - **`State: ERROR`.** An internal shell API changed. The journal trace points at the exact file
   and line.
 
