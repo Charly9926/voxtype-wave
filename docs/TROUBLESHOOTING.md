@@ -242,6 +242,42 @@ systemctl --user show-environment | grep WAYLAND_DISPLAY
 
 ---
 
+## A virtual microphone (Easy Effects, …) does not record
+
+**Symptom.** The menu lists a virtual source such as *Easy Effects Source*, the waveform stays
+flat, and the journal shows:
+
+```
+ERROR Failed to start audio: Audio device not found: 'easyeffects_source'.
+Available devices:
+  - sysdefault
+  - pipewire
+  - default
+```
+
+**Cause.** Voxtype captures audio through **ALSA** and only accepts what its backend enumerates:
+`voxtype info devices` lists `default` and `pipewire`, both meaning "the system default input". A
+PipeWire node name such as `easyeffects_source` is not an ALSA PCM, so the daemon cannot open it.
+That is why `[audio] device` must stay at `"default"`.
+
+**Fix.** Build the daemon with the PipeWire/Pulse capture host
+([patches/README.md](../patches/README.md)). Then `voxtype info devices` lists every source by
+name (Easy Effects Source included) and the **Input device** menu records the one you pick,
+without touching the system default.
+
+Without the patched build the only route is making the virtual source the system default, and Easy
+Effects must not be listening to that same default (it would feed itself and end up without
+audio):
+
+1. In Easy Effects, set **Input** to your real microphone (not the default).
+2. Make its source the system input: **GNOME Settings -> Sound -> Input**.
+3. Check: `pactl get-default-source` prints `easyeffects_source`, and Voxtype keeps
+   `audio.device = "default"`.
+
+Revert with `pactl set-default-source <your microphone>`.
+
+---
+
 ## Dictation is slow or RAM goes up
 
 **What is expected (not a problem).**

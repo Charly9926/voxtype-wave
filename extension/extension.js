@@ -46,9 +46,9 @@ const BRIDGE_RETRY_SECS = 3;  // respawn the bridge if it exits
 // --- waveform shape ---------------------------------------------------------
 // Frames are mirrored from the center, so the newest audio is in the middle and
 // there is no lateral scroll. HISTORY_FRAMES = 1 makes it purely instantaneous.
-const HISTORY_FRAMES = 6;     // 10 ms frames kept, mirrored from the center
+const HISTORY_FRAMES = 10;     // 10 ms frames kept, mirrored from the center
 const EDGE_FALLOFF = 0.55;    // amplitude drop towards the edges (0 = flat bars)
-const RELEASE = 0.72;         // per-tick decay when the audio drops
+const RELEASE = 0.85;         // per-tick decay when the audio drops
 const SILENT_LEVEL = 0.02;    // below this, the flat idle line is drawn
 const FLAT_LINE_H = 3;
 const FLAT_LINE_ALPHA = 0.35;
@@ -60,6 +60,7 @@ const PID_FILE = GLib.build_filenamev([VOXTYPE_RUNTIME, 'pid']);
 const CONFIG_FILE = GLib.build_filenamev([GLib.get_user_config_dir(), 'voxtype', 'config.toml']);
 const SAFETY_POLL_SECS = 5;   // safety net in case the monitor misses an event
 const MONITOR_RETRY_SECS = 2; // retry until the state file exists
+const COMMAND_TIMEOUT_MS = 5000; // kill a stuck systemctl/voxtype call instead of waiting forever
 
 const STATE_ICON = {
     idle: 'audio-input-microphone-symbolic',
@@ -114,8 +115,14 @@ function findBridge() {
     ]);
 }
 
+// Prefer the patched build (`voxtype-pw`): it captures through the Pulse host, so
+// `info devices` lists every source, Easy Effects' virtual microphone included.
 function findVoxtype() {
-    return findBinary('voxtype', [
+    // The daemon runs voxtype-pw when it exists (Pulse host): its device list is the
+    // one that matches what the daemon can actually open.
+    return findBinary('voxtype-pw', [
+        GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'voxtype-pw']),
+    ]) ?? findBinary('voxtype', [
         GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'voxtype']),
         '/usr/local/bin/voxtype',
         '/usr/lib/voxtype/voxtype',
@@ -136,14 +143,14 @@ function findVoxtypeUnit() {
 }
 
 // Small ASCII file reader (avoids TextDecoder for a few bytes).
-function readAscii(path, max = 64) {
+function readAscii(path) {
     try {
         const [ok, contents] = Gio.File.new_for_path(path).load_contents(null);
         if (!ok || !contents)
             return null;
         let text = '';
-        for (let i = 0; i < contents.length && i < max; i++)
-            text += String.fromCharCode(contents[i]);
+        for (const byte of contents)
+            text += String.fromCharCode(byte);
         return text.trim();
     } catch (e) {
         return null;
@@ -180,6 +187,9 @@ export default class VoxtypeWaveExtension extends Extension {
         this._safetyId = 0;
         this._updatingSwitches = false;
         this._deviceItems = [];
+        this._destroyed = false;
+        this._toggleTimerId = 0;
+        this._restartTimerId = 0;
         this._accent = this._readAccent();
         this._unitPath = findVoxtypeUnit();
         this._voxtype = findVoxtype();
@@ -191,6 +201,17 @@ export default class VoxtypeWaveExtension extends Extension {
     }
 
     disable() {
+        // Callbacks of in-flight subprocesses check this before touching the UI;
+        // without it they would use actors that are already destroyed.
+        this._destroyed = true;
+        if (this._toggleTimerId) {
+            GLib.source_remove(this._toggleTimerId);
+            this._toggleTimerId = 0;
+        }
+        if (this._restartTimerId) {
+            GLib.source_remove(this._restartTimerId);
+            this._restartTimerId = 0;
+        }
         if (this._paintId) {
             GLib.source_remove(this._paintId);
             this._paintId = 0;
@@ -239,11 +260,24 @@ export default class VoxtypeWaveExtension extends Extension {
 
         this._monitorsChangedId =
             Main.layoutManager.connect('monitors-changed', () => this._reposition());
+    }
 
+    // The animation only runs while something is on screen, so an idle desktop
+    // does not wake up 30 times per second.
+    _ensureTicker() {
+        if (this._paintId || this._destroyed)
+            return;
         this._paintId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, TICK_MS, () => {
             this._tick();
             return GLib.SOURCE_CONTINUE;
         });
+    }
+
+    _stopTicker() {
+        if (this._paintId) {
+            GLib.source_remove(this._paintId);
+            this._paintId = 0;
+        }
     }
 
     _readAccent() {
@@ -339,13 +373,17 @@ export default class VoxtypeWaveExtension extends Extension {
             this._refreshService();
         }
 
-        // Subprocesses (systemctl, voxtype config, pactl) run when the menu
+        // Subprocesses (systemctl, voxtype config) run when the menu
         // opens, not from a timer, so nothing is spawned while idle.
         this._indicator.menu.connect('open-state-changed', (_menu, open) => {
             if (!open)
                 return;
-            if (this._unitPath)
+            if (this._unitPath) {
+                // Until `is-active` answers, the label cannot be trusted: do not
+                // let the user start a service that is already running.
+                this._toggleItem?.setSensitive(false);
                 this._refreshService();
+            }
             this._refreshSwitches();
             this._refreshInputDevices();
         });
@@ -355,6 +393,12 @@ export default class VoxtypeWaveExtension extends Extension {
 
     // =======================================================================
     //  Input device picker
+    //
+    //  The list comes from `voxtype info devices --json`, which is exactly what the
+    //  running daemon can open: `default` (follow the system input) plus, when it was
+    //  built with a PipeWire/Pulse host, every source by name, Easy Effects' virtual
+    //  source included. Selecting one writes `audio.device` and restarts the service,
+    //  so nothing outside Voxtype changes: no system default to break.
     // =======================================================================
     _refreshInputDevices() {
         if (!this._inputItem)
@@ -362,20 +406,14 @@ export default class VoxtypeWaveExtension extends Extension {
         const submenu = this._inputItem.menu;
         submenu.removeAll();
         this._deviceItems = [];
-        // Reopening the menu while `pactl` is still running must not append the
-        // list twice, so only the newest request is allowed to fill the submenu.
+        // Reopening the menu while `voxtype info devices` is still running must not
+        // append the list twice, so only the newest request may fill the submenu.
         const generation = this._deviceGeneration = (this._deviceGeneration ?? 0) + 1;
 
-        const addDevice = (label, device) => {
-            const item = new PopupMenu.PopupMenuItem(label);
-            item.voxtypeDevice = device;
-            item.voxtypeLabel = label;
-            item.connect('activate', () => this._setInputDevice(device));
-            submenu.addMenuItem(item);
-            this._deviceItems.push(item);
-        };
-
-        addDevice('System default', 'default');
+        this._inputInfoItem = new PopupMenu.PopupMenuItem('Voxtype records: …');
+        this._inputInfoItem.setSensitive(false);
+        submenu.addMenuItem(this._inputInfoItem);
+        submenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         if (!this._voxtype) {
             submenu.addMenuItem(new PopupMenu.PopupMenuItem('voxtype not found',
@@ -392,13 +430,26 @@ export default class VoxtypeWaveExtension extends Extension {
             } catch (e) {
                 sources = [];
             }
+            // The daemon matches sources by description, so that is the value to
+            // store; monitors are not microphones.
+            sources = (Array.isArray(sources) ? sources : [])
+                .filter(m => m && typeof m.name === 'string' && !m.name.endsWith('.monitor'))
+                .map(m => ({name: String(m.description || m.name)}));
+            if (sources.length === 0)
+                sources = [{name: 'default'}, {name: 'pipewire'}];
+            // Voxtype (Pulse host) matches sources by description, and monitors are
+            // not microphones.
             const mics = (Array.isArray(sources) ? sources : [])
-                .filter(s => s && typeof s.name === 'string' && !s.name.endsWith('.monitor'))
-                .sort((a, b) => String(a.description ?? a.name)
-                    .localeCompare(String(b.description ?? b.name)));
+                .filter(m => m && typeof m.name === 'string' &&
+                    !m.name.startsWith('Monitor of ') && !m.name.endsWith('.monitor'));
 
-            for (const mic of mics)
-                addDevice(String(mic.description || mic.name), mic.name);
+            for (const mic of mics) {
+                const item = new PopupMenu.PopupMenuItem(mic.name);
+                item.voxtypeDevice = mic.name;
+                item.connect('activate', () => this._setInputDevice(mic.name));
+                submenu.addMenuItem(item);
+                this._deviceItems.push(item);
+            }
 
             if (mics.length === 0) {
                 submenu.addMenuItem(new PopupMenu.PopupMenuItem('No input devices found',
@@ -408,40 +459,40 @@ export default class VoxtypeWaveExtension extends Extension {
         });
     }
 
-    // Dot on the device in use, plus a hint on the one PipeWire uses as default.
+    // Dot on the device Voxtype is configured to use. A value that is not in the list
+    // (hand-edited config, a device that disappeared) is shown so it can be fixed.
     _refreshDeviceMarks() {
-        if (!this._voxtype || !this._deviceItems?.length)
+        if (!this._voxtype || !this._inputItem || !this._deviceItems)
             return;
-
+        const generation = this._deviceGeneration;
         this._runCommand([this._voxtype, 'config', 'get', 'audio.device'], out => {
-            if (!this._deviceItems)
+            if (generation !== this._deviceGeneration || !this._inputItem || !this._deviceItems)
                 return;
             const current = out.split('\n')[0].trim() || 'default';
-            for (const item of this._deviceItems) {
-                const active = item.voxtypeDevice === current;
-                item.setOrnament(active ? PopupMenu.Ornament.DOT : PopupMenu.Ornament.NONE);
+            const item = this._deviceItems.find(i => i.voxtypeDevice === current);
+            this._inputInfoItem.label.text =
+                `Voxtype records: ${item ? item.label.text : current}`;
+            for (const deviceItem of this._deviceItems) {
+                deviceItem.setOrnament(deviceItem.voxtypeDevice === current
+                    ? PopupMenu.Ornament.DOT
+                    : PopupMenu.Ornament.NONE);
             }
-        });
-
-        this._runCommand(['pactl', 'get-default-source'], out => {
-            const def = out.split('\n')[0].trim();
-            if (!def || !this._deviceItems)
-                return;
-            for (const item of this._deviceItems) {
-                if (item.voxtypeDevice === 'default')
-                    item.label.text = `System default  (${def})`;
-                else if (item.voxtypeDevice === def)
-                    item.label.text = `${item.voxtypeLabel}  ·  system default`;
+            if (!item) {
+                const warning = new PopupMenu.PopupMenuItem(`not in the list: ${current}`);
+                warning.setSensitive(false);
+                this._inputItem.menu.addMenuItem(warning);
+                const reset = new PopupMenu.PopupMenuItem('Use the system default');
+                reset.connect('activate', () => this._setInputDevice('default'));
+                this._inputItem.menu.addMenuItem(reset);
             }
         });
     }
 
-    _setInputDevice(device) {
+    _setInputDevice(name) {
         if (!this._voxtype)
             return;
-        this._runCommand([this._voxtype, 'config', 'set', 'audio.device', device], () => {
-            this._restartService();
-        });
+        this._runCommand([this._voxtype, 'config', 'set', 'audio.device', name],
+            () => this._restartService());
     }
 
     // =======================================================================
@@ -541,6 +592,17 @@ export default class VoxtypeWaveExtension extends Extension {
         this._icon.icon_name = STATE_ICON[this._state];
         this._icon.style_class = `system-status-icon ${STATE_CLASS[this._state]}`;
         this._statusItem.label.text = `Voxtype: ${STATE_LABEL[this._state]}`;
+        // Show the waveform as soon as the daemon starts a recording (that is what
+        // the F9 shortcut toggles), not when the first audio frame arrives.
+        if (this._state === 'recording' && !this._visible) {
+            this._visible = true;
+            this._reposition();
+            this._area.set_opacity(255);
+            this._area.show();
+            this._ensureTicker();
+        }
+        // The tooltip and the screen-reader name follow the state too.
+        this._indicator.accessible_name = `Voxtype: ${STATE_LABEL[this._state]}`;
     }
 
     // =======================================================================
@@ -555,7 +617,21 @@ export default class VoxtypeWaveExtension extends Extension {
             logError(e, `[voxtype-wave] could not run ${argv.join(' ')}`);
             return;
         }
+        // A stuck systemctl/voxtype would otherwise freeze the menu with stale data
+        // and leave the callback pending forever.
+        let timedOut = false;
+        const killId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, COMMAND_TIMEOUT_MS, () => {
+            timedOut = true;
+            try {
+                proc.force_exit();
+            } catch (e) {
+                // already gone
+            }
+            return GLib.SOURCE_REMOVE;
+        });
         proc.communicate_utf8_async(null, null, (p, res) => {
+            if (!timedOut)
+                GLib.source_remove(killId);
             let out = '';
             try {
                 const [, stdout] = p.communicate_utf8_finish(res);
@@ -563,7 +639,8 @@ export default class VoxtypeWaveExtension extends Extension {
             } catch (e) {
                 out = '';
             }
-            callback?.(out);
+            if (!this._destroyed)
+                callback?.(out);
         });
     }
 
@@ -577,6 +654,7 @@ export default class VoxtypeWaveExtension extends Extension {
             if (this._toggleItem) {
                 this._toggleItem.label.text =
                     this._serviceActive ? 'Stop daemon' : 'Start daemon';
+                this._toggleItem.setSensitive(true);
             }
         });
     }
@@ -584,7 +662,8 @@ export default class VoxtypeWaveExtension extends Extension {
     _toggleDaemon() {
         const action = this._serviceActive ? 'stop' : 'start';
         this._runSystemctl([action, 'voxtype'], () => {
-            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 800, () => {
+            this._toggleTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 800, () => {
+                this._toggleTimerId = 0;
                 this._refreshService();
                 return GLib.SOURCE_REMOVE;
             });
@@ -596,7 +675,8 @@ export default class VoxtypeWaveExtension extends Extension {
         if (!this._unitPath)
             return;
         this._runSystemctl(['restart', 'voxtype'], () => {
-            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1200, () => {
+            this._restartTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1200, () => {
+                this._restartTimerId = 0;
                 this._refreshService();
                 return GLib.SOURCE_REMOVE;
             });
@@ -683,6 +763,8 @@ export default class VoxtypeWaveExtension extends Extension {
         if (!this._stdout)
             return;
         this._stdout.read_line_async(GLib.PRIORITY_DEFAULT, null, (stream, res) => {
+            if (this._destroyed)
+                return;
             let line = null;
             try {
                 [line] = stream.read_line_finish_utf8(res);
@@ -731,6 +813,7 @@ export default class VoxtypeWaveExtension extends Extension {
             this._reposition();
             this._area.set_opacity(255);
             this._area.show();
+            this._ensureTicker();
         }
     }
 
@@ -765,13 +848,19 @@ export default class VoxtypeWaveExtension extends Extension {
         }
         this._silent = loudest < SILENT_LEVEL;
 
-        if (this._visible) {
+        // The panel stays up for the whole recording, pauses included; it fades
+        // only once the daemon leaves the recording/transcribing state.
+        const active = this._state === 'recording' || this._state === 'transcribing';
+        if (this._visible && active) {
+            this._area.set_opacity(255);
+        } else if (this._visible) {
             if (elapsedMs >= FADE_END_MS) {
                 this._visible = false;
                 this._area.hide();
                 this._bars.fill(0);
                 this._hist.length = 0;
                 this._silent = true;
+                this._stopTicker();
             } else if (elapsedMs > FADE_START_MS) {
                 const t = (elapsedMs - FADE_START_MS) / (FADE_END_MS - FADE_START_MS);
                 this._area.set_opacity(Math.round(255 * (1 - Math.min(1, t))));

@@ -242,10 +242,12 @@ opened** or when an action is taken, never from a periodic timer.
 
 Besides the state and starting/stopping/restarting the daemon, the menu has:
 
-- an **Input device** submenu that lists the PipeWire sources (`pactl --format=json list sources`,
-  with `.monitor` entries filtered out). It writes `audio.device` with `voxtype config set` and
-  restarts the service. A dot marks the device Voxtype is configured to use, `System default`
-  shows what PipeWire resolves to, and the device PipeWire uses as default is annotated;
+- an **Input device** submenu built from `voxtype info devices --json`, which is exactly what
+  the daemon can open: `default` plus, with the patched build in [patches/](../patches/README.md),
+  every PipeWire/Pulse source by name (Easy Effects' virtual microphone included; monitors are
+  filtered out). Selecting one writes `audio.device` with `voxtype config set` and restarts the
+  service; a dot marks the device in use and the row above shows its name. Nothing outside
+  Voxtype changes, so there is no system default to break and no feedback loop;
 - two switches (**Spoken punctuation** and **Remove filler words**) that write the corresponding
   key with `voxtype config set` —which preserves comments and validates the value— and then
   restart the service, because **Voxtype does not reload its configuration on the fly** (its own

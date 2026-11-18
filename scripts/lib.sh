@@ -9,6 +9,10 @@ VOXTYPE_SIGNING_KEY="A3FC9F33FD209279"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 CONF_DIR="${CONF_DIR:-$HOME/.config/voxtype}"
 
+# Identity shared by the installer and the uninstaller.
+UUID="${UUID:-voxtype-wave@charly9926.github.io}"
+SHORTCUT_NAME="${SHORTCUT_NAME:-Voxtype dictation (toggle)}"
+
 # --- output ---------------------------------------------------------------
 say()  { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
@@ -25,6 +29,20 @@ confirm() {
         y|yes) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+# usage_from_header <file>
+# Prints the "#" block that follows the shebang, as the --help text. Reading the
+# block instead of a fixed line range keeps --help in sync with the header.
+usage_from_header() {
+    local line
+    while IFS= read -r line; do
+        case "$line" in
+            '# '*) printf '%s\n' "${line:2}" ;;
+            '#')   printf '\n' ;;
+            *)     return 0 ;;
+        esac
+    done < <(tail -n +2 "$1")
 }
 
 # --- detection ------------------------------------------------------------
@@ -101,7 +119,7 @@ fetch_binaries() {
                 if gpg --verify "$dest/SHA256SUMS.txt.asc" "$dest/SHA256SUMS.txt" >/dev/null 2>&1; then
                     ok "GPG signature of the checksum list: valid"
                 else
-                    warn "the GPG signature of the checksum list did NOT validate"
+                    die "the GPG signature of the checksum list did NOT validate"
                 fi
             else
                 info "to verify the signature: gpg --keyserver hkps://keys.openpgp.org --recv-keys $VOXTYPE_SIGNING_KEY"

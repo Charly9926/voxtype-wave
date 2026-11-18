@@ -12,12 +12,14 @@
 set -euo pipefail
 
 REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib.sh
+source "$REPO_DIR/scripts/lib.sh"
 OUT_DIR="$REPO_DIR/dist"
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) OUT_DIR="${2:?--out needs a directory}"; shift ;;
-        -h|--help) sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) usage_from_header "${BASH_SOURCE[0]}"; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 1 ;;
     esac
     shift

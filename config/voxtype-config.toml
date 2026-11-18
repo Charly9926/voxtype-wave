@@ -14,7 +14,7 @@ key = "F9"
 mode = "toggle"
 
 [audio]
-device = "default"
+device = "default"            # follows PipeWire's default source (virtual mics included)
 sample_rate = 16000
 max_duration_secs = 120
 pause_media = false

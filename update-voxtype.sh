@@ -23,7 +23,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --force) FORCE=1 ;;
         -y|--yes) ASSUME_YES=1 ;;
-        -h|--help) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) usage_from_header "${BASH_SOURCE[0]}"; exit 0 ;;
         *) die "unknown option: $1" ;;
     esac
     shift
@@ -50,7 +50,21 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 fetch_binaries "$target" "$tmp"
+
+# Keep the current binary until the new one proves it runs: a release built
+# against a newer glibc would otherwise leave dictation dead with no way back.
+prev="$BIN_DIR/voxtype.prev"
+[ -e "$BIN_DIR/voxtype" ] && cp -a "$BIN_DIR/voxtype" "$prev"
 install_binaries "$tmp"
+
+if ! "$BIN_DIR/voxtype" --version >/dev/null 2>&1; then
+    if [ -e "$prev" ]; then
+        mv -f "$prev" "$BIN_DIR/voxtype"
+        die "$target does not run on this system; the previous binary is back"
+    fi
+    die "$target does not run on this system and there was no previous binary"
+fi
+rm -f "$prev"
 
 if systemctl --user is-enabled --quiet voxtype.service 2>/dev/null; then
     if confirm "restart the service now?"; then

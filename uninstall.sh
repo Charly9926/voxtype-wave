@@ -16,8 +16,6 @@ REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib.sh
 source "$REPO_DIR/scripts/lib.sh"
 
-UUID="voxtype-wave@charly9926.github.io"
-SHORTCUT_NAME="Voxtype dictation (toggle)"
 PURGE=0
 EXT_DIR="$HOME/.local/share/gnome-shell/extensions/$UUID"
 UNIT_DIR="$HOME/.config/systemd/user"
@@ -26,7 +24,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --purge) PURGE=1 ;;
         -y|--yes) ASSUME_YES=1 ;;
-        -h|--help) sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) usage_from_header "${BASH_SOURCE[0]}"; exit 0 ;;
         *) die "unknown option: $1" ;;
     esac
     shift
@@ -42,7 +40,15 @@ systemctl --user daemon-reload >/dev/null 2>&1 || true
 ok "service removed"
 
 say "2/5  Removing the GNOME extension"
-python3 "$REPO_DIR/scripts/gnome-settings.py" extension-disable --uuid "$UUID" || true
+if [ -f "$REPO_DIR/scripts/gnome-settings.py" ]; then
+    python3 "$REPO_DIR/scripts/gnome-settings.py" extension-disable --uuid "$UUID" || true
+else
+    # Without the helper the uuid would stay in enabled-extensions and GNOME
+    # would log an error on every login.
+    warn "scripts/gnome-settings.py is missing; remove the uuid by hand:"
+    info "gsettings get org.gnome.shell enabled-extensions"
+    info "gsettings set org.gnome.shell enabled-extensions \"[...]\"   (that list without $UUID)"
+fi
 rm -rf "$EXT_DIR"
 ok "extension removed (it disappears from the top bar on next login)"
 

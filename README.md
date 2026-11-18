@@ -55,11 +55,16 @@ there as-is (Omarchy already ships it integrated with Quickshell).
 
 The **top-bar icon** shows the state: ready, recording or transcribing. Left-clicking it opens
 a menu with the current state, **start / stop / restart the daemon**, an **Input device** submenu
-that lists your microphones (read from PipeWire) and marks the one in use, switches for two
-Voxtype options (**spoken punctuation** and **filler-word removal**), and **Open configuration**,
-which opens `~/.config/voxtype/config.toml` in your default editor. Every change writes the option
-through `voxtype config set` (comments and validation preserved) and restarts the daemon, because
-Voxtype does not reload its config on the fly. So you never need a terminal to manage it.
+that lists exactly the devices the daemon can open (`voxtype info devices`) and writes
+`audio.device` for the one you pick, with a dot on the device in use. With the stock Voxtype
+binary that list is `default` and `pipewire` (both mean "the system input"); with the patched
+build in [patches/](patches/README.md) it also contains every PipeWire source, Easy Effects'
+virtual microphone included, so it works like the device picker in Discord. The menu also has
+switches for two Voxtype options (**spoken punctuation** and **filler-word removal**) and **Open
+configuration**, which opens `~/.config/voxtype/config.toml` in your default editor. Every change
+writes the option through `voxtype config set` (comments and validation preserved) and restarts
+the daemon, because Voxtype does not reload its config on the fly. So you never need a terminal
+to manage it.
 
 The state is watched with a `Gio.FileMonitor` on `$XDG_RUNTIME_DIR/voxtype/state` (no polling),
 with a 2 s retry until the file exists at login and a 5 s low-cost safety check.

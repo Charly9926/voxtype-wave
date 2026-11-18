@@ -7,7 +7,7 @@
 #   2. voxtype         (daemon, standalone binary verified by SHA256)  -> ~/.local/bin
 #   3. audio-bridge    (bridges the audio socket to NDJSON)            -> ~/.local/bin
 #   4. Parakeet model  (670 MB, skip it with --no-model)
-#   5. config          -> ~/.config/voxtype/config.toml  (an existing file is backed up)
+#   5. config          -> ~/.config/voxtype/config.toml  (an existing file is kept)
 #   6. service         -> ~/.config/systemd/user/voxtype.service
 #   7. GNOME extension -> ~/.local/share/gnome-shell/extensions/voxtype-wave@charly9926.github.io
 #   8. GNOME shortcut  (F9 -> voxtype record toggle), without touching your current shortcuts
@@ -27,8 +27,6 @@ REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib.sh
 source "$REPO_DIR/scripts/lib.sh"
 
-UUID="voxtype-wave@charly9926.github.io"
-SHORTCUT_NAME="Voxtype dictation (toggle)"
 VOXTYPE_VERSION="1.1.0"
 MODEL="parakeet-tdt-0.6b-v3-int8"
 HOTKEY="F9"
@@ -40,7 +38,7 @@ NEEDS_RELOGIN=0
 EXT_DIR="$HOME/.local/share/gnome-shell/extensions/$UUID"
 UNIT_DIR="$HOME/.config/systemd/user"
 
-usage() { sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { usage_from_header "${BASH_SOURCE[0]}"; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -140,6 +138,7 @@ install_dotool() {
 install_voxtype() {
     [ "$FETCH_LATEST" = 1 ] && VOXTYPE_VERSION="$(latest_voxtype_version)"
     say "2/8  Downloading Voxtype $VOXTYPE_VERSION and verifying integrity"
+    [ "$FETCH_LATEST" = 1 ] || info "pinned release; --latest installs the newest one"
     local tmp
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' EXIT
@@ -159,11 +158,13 @@ install_config() {
     say "4/8  Configuration in $CONF_DIR/config.toml"
     mkdir -p "$CONF_DIR"
     if [ -f "$CONF_DIR/config.toml" ]; then
-        local backup="$CONF_DIR/config.toml.bak.$(date +%Y%m%d-%H%M%S)"
-        cp -a "$CONF_DIR/config.toml" "$backup"
-        warn "you already had a config: backup saved to $backup"
+        # Re-running the installer is also how the docs tell people to fix a
+        # missing bridge, so never overwrite what they already tuned.
+        ok "keeping your existing config (not overwritten)"
+    else
+        install -Dm644 "$REPO_DIR/config/voxtype-config.toml" "$CONF_DIR/config.toml"
+        ok "template installed"
     fi
-    install -Dm644 "$REPO_DIR/config/voxtype-config.toml" "$CONF_DIR/config.toml"
     if "$BIN_DIR/voxtype" -c "$CONF_DIR/config.toml" config >/dev/null 2>&1; then
         ok "the config parses correctly"
     else
@@ -182,7 +183,11 @@ install_model() {
         return
     fi
     info "downloading ~670 MB from models.voxtype.io (this can take a while)"
-    "$BIN_DIR/voxtype" setup --download --model "$MODEL"
+    if ! "$BIN_DIR/voxtype" setup --download --model "$MODEL"; then
+        warn "the model download failed; everything else is installed"
+        info "retry it later: $BIN_DIR/voxtype setup --download --model $MODEL"
+        return
+    fi
     ok "model ready in ~/.local/share/voxtype/models/$MODEL"
 }
 
@@ -245,6 +250,10 @@ install_extension() {
     done
     ok "files copied to $EXT_DIR"
     python3 "$REPO_DIR/scripts/gnome-settings.py" extension-enable --uuid "$UUID"
+    # An earlier install may have used another uuid; leaving both enabled shows
+    # two icons and runs the old code.
+    python3 "$REPO_DIR/scripts/gnome-settings.py" extension-disable-older \
+        --prefix "voxtype-wave@" --keep "$UUID" || true
     NEEDS_RELOGIN=1
 }
 

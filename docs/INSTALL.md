@@ -52,7 +52,15 @@ cd "$REPO"
 You need **GNOME Shell 50 or 51 on Wayland** (tested on Fedora 44 with GNOME 50.5 and Fedora 45
 with GNOME 51.1; the extension's `metadata.json` declares both), a systemd user session,
 `pipewire-alsa` (the daemon captures audio through ALSA on top of PipeWire), `wl-clipboard` and
-`curl`. The input-device picker also uses `pactl`, which ships with PipeWire's PulseAudio tools.
+`curl`.
+
+### Optional: virtual microphone (Easy Effects, ...)
+
+The stock Voxtype binary only accepts the devices its ALSA backend enumerates (`default`,
+`pipewire`). To record from a PipeWire source such as Easy Effects' virtual microphone, build the
+patched binary with the Pulse capture host; the steps are in
+[patches/README.md](../patches/README.md). After that the **Input device** menu lists every
+source and the daemon records the one you pick, without touching the system default.
 
 Check it like this:
 

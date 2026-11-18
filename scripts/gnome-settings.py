@@ -12,6 +12,12 @@ Usage:
     gnome-settings.py extension-enable --uuid UUID
     gnome-settings.py extension-disable --uuid UUID
     gnome-settings.py extension-status --uuid UUID
+    gnome-settings.py extension-disable-older --prefix PREFIX --keep UUID
+
+`shortcut-show` and `extension-status` are read-only: they print state and are
+meant for humans and for `--help`-style checks, not for the installer.
+
+Tests: python3 -m unittest discover -s scripts -p 'test_*.py'
 """
 
 import argparse
@@ -23,7 +29,6 @@ MEDIA_KEYS = 'org.gnome.settings-daemon.plugins.media-keys'
 CUSTOM_SCHEMA = f'{MEDIA_KEYS}.custom-keybinding'
 CUSTOM_BASE = '/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings'
 SHELL_SCHEMA = 'org.gnome.shell'
-EXT_SCHEMA = 'org.gnome.shell.extensions'
 
 
 def _run(args):
@@ -67,7 +72,8 @@ def as_list(raw):
 
 def as_variant(items):
     """Serialize a list of strings into the `as` GVariant that gsettings expects."""
-    quoted = ", ".join("'%s'" % item.replace("'", "\\'") for item in items)
+    quoted = ", ".join("'%s'" % item.replace("\\", "\\\\").replace("'", "\\'")
+                       for item in items)
     return f'[{quoted}]'
 
 
@@ -124,14 +130,19 @@ def cmd_shortcut_set(args):
     created = slot is None
     if created:
         slot = _free_slot()
-        paths.append(slot)
-    gset(MEDIA_KEYS, 'custom-keybindings', as_variant(paths))
+    # Write the keys before registering the slot: if a write fails, the list
+    # must not keep a path with empty values (a ghost shortcut in GNOME).
     schema = f'{CUSTOM_SCHEMA}:{slot}'
     if created:
         gset(schema, 'name', f"'{args.name}'")
+        # Only a shortcut we create is kept off the lock screen; adopting an
+        # existing one must not change the user's choice.
+        gset(schema, 'enable-in-lockscreen', 'false')
     gset(schema, 'command', f"'{args.command}'")
     gset(schema, 'binding', f"'{args.binding}'")
-    gset(schema, 'enable-in-lockscreen', 'false')
+    if created:
+        paths.append(slot)
+        gset(MEDIA_KEYS, 'custom-keybindings', as_variant(paths))
     if created:
         state = 'created'
     elif adopted:
@@ -205,6 +216,20 @@ def cmd_extension_status(args):
     return 0
 
 
+def cmd_extension_disable_older(args):
+    """Leave only the current uuid enabled (installs that changed uuid)."""
+    enabled = as_list(gget(SHELL_SCHEMA, 'enabled-extensions'))
+    keep = [u for u in enabled if u == args.keep or not u.startswith(args.prefix)]
+    removed = [u for u in enabled if u not in keep]
+    if removed:
+        gset(SHELL_SCHEMA, 'enabled-extensions', as_variant(keep))
+        for uuid in removed:
+            print(f'older extension disabled: {uuid}')
+    else:
+        print('no older extension enabled')
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -242,6 +267,12 @@ def main():
     p = sub.add_parser('extension-status')
     p.add_argument('--uuid', required=True)
     p.set_defaults(func=cmd_extension_status)
+
+    p = sub.add_parser('extension-disable-older')
+    p.add_argument('--prefix', required=True,
+                   help='uuid prefix of this extension series, e.g. voxtype-wave@')
+    p.add_argument('--keep', required=True, help='the uuid to keep enabled')
+    p.set_defaults(func=cmd_extension_disable_older)
 
     args = parser.parse_args()
     return args.func(args)
